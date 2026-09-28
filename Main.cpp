@@ -78,15 +78,24 @@ int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo d
 
     //OpenGL
     // Crear el contexto de OpenGL
-    SDL_GLContext gl_context = SDL_GL_CreateContext(window);
+    SDL_GLContext gl_context = SDL_GL_CreateContext(window);//gl contexto, es un espacio de trabajo donde se guarda todas las configuraciones graficas, por ejemplo las texturas, los vetices etc
+    //lo que esta haciendo es conectar este espacio para que podemos a mostrar las gráficas con el window, gracias a él ya podemos dibujar un cubo imagen etc en la window que hemos creado
+    //En conclucion OpenGL contexto su funcion es crear un espacio o podemos decir activar la tarjeta grafica para que empieza a renderizar las graficas en nuestra pantalla
+
+    //el contexto es precisamente la libreta o memoria donde se guarda todo : qué textura está activa, qué vértices pintar, los colores y las configuraciones.
     if (!gl_context) {
         return -1;
     }
 
-    //// Inicializar Glad
+    //Ojo!! antes de este paso hay que activar ya el OpenGL conectando con el Window
+    //// Inicializar Glad(para que podemos usar las funciones de la tarjetas graficas)
     // forma 1
+    //SDL_GL_GetProcAddress su funcion es buscar la direccion de la memoria de las funciones del OpenGL, asi ya podemos empezar a trabajar con Glad
+    //Carga mientra esta ejecutando
+    //reinterpret_cast<GLADloadproc>(...): su funcion es convertir el leguaje del SDL al lenguaje que puede entender el GLad,
+    //gladLoadGLLoader para cargar y pasar todas las funciones del OpenGL
     if (gladLoadGLLoader(reinterpret_cast<GLADloadproc>(SDL_GL_GetProcAddress)) == 0) return -1;
-
+    
     //Forma 2
     // 
     //int version = gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress);
@@ -102,36 +111,85 @@ int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo d
     fmt::print("GLSL: {}\n", (const char*)glGetString(GL_SHADING_LANGUAGE_VERSION));
 
     //
+    // Decir al OpenGL donde se mapear las coordenadas narmalizadas del espacio 3d a los pixeles reales de tu pantallas, 0,0 significa que empiza dibujar en la esquina inferior izquierda de la ventana
+    //y Wwdth y wheight marca el tamaño en pixeles
+    glViewport(0, 0, wWidth, wHeight);// De donde se empieza, Esto asegura que la imagen se estire o encaje perfectamente ocupando toda la ventana.
 
-    glViewport(0, 0, wWidth, wHeight);
-    glClearColor(0.1f, 0.25f, 0.5f, 1.0f);
+    //glClearColor(0.1f, 0.25f, 0.5f, 1.0f);
+    //Configural el color del fondo RGBA (Rojo, Verde, Azul y Alfa/Transparencia)
+    glClearColor(0.1f, 0.1f, 0.15f, 1.0f);
+
+    //Z-Buffer
+    glEnable(GL_DEPTH_TEST);
 
     //-------------------------------Triangulo-----------------------------------//
     //float v[] = { -0.5f,-0.5f,0.0f,0.5f,-0.5f,0.0f,0.0f,0.5f,0.0f };
     //float c[] = { 1.0f,0.0f,0.0f,0.0f,1.0f,0.0f,0.0f,0.0f,1.0f };
     //-----------------------------------------------------------------------------//
 
-    //-------------------------------Rectangulo-----------------------------------//
-    float v[] = { -0.5f,-0.5f,0.0f,
-                   0.5f,-0.5f,0.0f,
-                   0.5f,0.5f,0.0f,
+    ////-------------------------------Rectangulo-----------------------------------//
+    //float v[] = { -0.5f,-0.5f,0.0f,
+    //               0.5f,-0.5f,0.0f,
+    //               0.5f,0.5f,0.0f,
 
-                  -0.5f,-0.5f,0.0f,
-                  0.5f,0.5f,0.0f,
-                  -0.5f,0.5f,0.0f
-    
-    
-    
+    //              -0.5f,-0.5f,0.0f,
+    //              0.5f,0.5f,0.0f,
+    //              -0.5f,0.5f,0.0f
+    //
+    //
+    //
+    //};
+    //float c[] = {
+    //    1.0f, 0.0f, 0.0f, // Rojo (V0)
+    //    0.0f, 1.0f, 0.0f, // Verde (V1)
+    //    0.0f, 0.0f, 1.0f, // Azul (V2)
+    //    1.0f, 0.0f, 0.0f, // Rojo (V3)
+    //    0.0f, 0.0f, 1.0f, // Azul (V4)
+    //    1.0f, 1.0f, 0.0f  // Amarillo (V5)
+    //};
+    ////-----------------------------------------------------------------------------//
+
+    //CUBO
+    float v[] = {
+        // Cara frontal
+        -0.5f, -0.5f,  0.5f,   0.5f, -0.5f,  0.5f,   0.5f,  0.5f,  0.5f,
+        -0.5f, -0.5f,  0.5f,   0.5f,  0.5f,  0.5f,  -0.5f,  0.5f,  0.5f,
+        // Cara trasera
+        -0.5f, -0.5f, -0.5f,  -0.5f,  0.5f, -0.5f,   0.5f,  0.5f, -0.5f,
+        -0.5f, -0.5f, -0.5f,   0.5f,  0.5f, -0.5f,   0.5f, -0.5f, -0.5f,
+        // Cara izquierda
+        -0.5f,  0.5f,  0.5f,  -0.5f,  0.5f, -0.5f,  -0.5f, -0.5f, -0.5f,
+        -0.5f,  0.5f,  0.5f,  -0.5f, -0.5f, -0.5f,  -0.5f, -0.5f,  0.5f,
+        // Cara derecha
+         0.5f,  0.5f,  0.5f,   0.5f, -0.5f, -0.5f,   0.5f,  0.5f, -0.5f,
+         0.5f, -0.5f, -0.5f,   0.5f,  0.5f,  0.5f,   0.5f, -0.5f,  0.5f,
+         // Cara superior
+         -0.5f,  0.5f, -0.5f,  -0.5f,  0.5f,  0.5f,   0.5f,  0.5f,  0.5f,
+         -0.5f,  0.5f, -0.5f,   0.5f,  0.5f,  0.5f,   0.5f,  0.5f, -0.5f,
+         // Cara inferior
+         -0.5f, -0.5f, -0.5f,   0.5f, -0.5f, -0.5f,   0.5f, -0.5f,  0.5f,
+         -0.5f, -0.5f, -0.5f,   0.5f, -0.5f,  0.5f,  -0.5f, -0.5f,  0.5f
     };
-    float c[] = {
-        1.0f, 0.0f, 0.0f, // Rojo (V0)
-        0.0f, 1.0f, 0.0f, // Verde (V1)
-        0.0f, 0.0f, 1.0f, // Azul (V2)
-        1.0f, 0.0f, 0.0f, // Rojo (V3)
-        0.0f, 0.0f, 1.0f, // Azul (V4)
-        1.0f, 1.0f, 0.0f  // Amarillo (V5)
+
+    // Colores para cada vértice (un color distinto por cara)
+    float c[36 * 3];
+    float colorsPerFace[6][3] = {
+        {1.0f, 0.0f, 0.0f}, // Rojo
+        {0.0f, 1.0f, 0.0f}, // Verde
+        {0.0f, 0.0f, 1.0f}, // Azul
+        {1.0f, 1.0f, 0.0f}, // Amarillo
+        {1.0f, 0.0f, 1.0f}, // Magenta
+        {0.0f, 1.0f, 1.0f}  // Cian
     };
-    //-----------------------------------------------------------------------------//
+
+    for (int face = 0; face < 6; face++) {
+        for (int vertex = 0; vertex < 6; vertex++) {
+            int index = (face * 6 + vertex) * 3;
+            c[index + 0] = colorsPerFace[face][0];
+            c[index + 1] = colorsPerFace[face][1];
+            c[index + 2] = colorsPerFace[face][2];
+        }
+    }
 
     GLuint buffs[2];
     glGenBuffers(2, buffs);
@@ -140,15 +198,15 @@ int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo d
     glBindBuffer(GL_ARRAY_BUFFER, buffs[1]);
     glBufferData(GL_ARRAY_BUFFER, sizeof(c), c, GL_STATIC_DRAW);
 
-    //triangulo
-    float vertices[] = {
-        -0.5f, -0.5f,0.0f, 1.0f, 0.0f,0.0f,0.5f,-0.5f,0.0f,0.0f,1.0f,0.0f,0.0f,0.5f,0.0f,0.0f,0.0f,1.0f
-    };
+    ////triangulo
+    //float vertices[] = {
+    //    -0.5f, -0.5f,0.0f, 1.0f, 0.0f,0.0f,0.5f,-0.5f,0.0f,0.0f,1.0f,0.0f,0.0f,0.5f,0.0f,0.0f,0.0f,1.0f
+    //};
 
-    GLuint vBuff;
-    glGenBuffers(1, &vBuff);
-    glBindBuffer(GL_ARRAY_BUFFER, vBuff);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    //GLuint vBuff;
+    //glGenBuffers(1, &vBuff);
+    //glBindBuffer(GL_ARRAY_BUFFER, vBuff);
+    //glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
 
     //Rot
     float angle = 0.0f;
@@ -186,16 +244,30 @@ int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo d
 
             }
         }
+        // Limpiar buffer de color y de profundidad
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+       
+        // 1. Matriz de Proyección Perspectiva
+        glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)wWidth / (float)wHeight, 0.1f, 100.0f);
+        glMatrixMode(GL_PROJECTION);
+        glLoadMatrixf(glm::value_ptr(projection));
+
+
         //Rotación//
         angle += 0.01f;
         //matrix de 4x4 dimenciones
         //Al poner 1.0f significa La Matrix Indentidad(situación sin rotación, sin movimiento y sin cambios de tamaño)
-        glm::mat4 transform = glm::mat4(1.0f);
+        //glm::mat4 transform = glm::mat4(1.0f);
+        //transform = glm::rotate(transform,angle,glm::vec3(0.0f,0.0f,1.0f));
+ /*       glMatrixMode(GL_MODELVIEW);
+        glLoadMatrixf(glm::value_ptr(transform));*/
 
-        transform = glm::rotate(transform,angle,glm::vec3(0.0f,0.0f,1.0f));
-
+        glm::mat4 modelview = glm::mat4(1.0f);
+        modelview = glm::translate(modelview, glm::vec3(0.0f, 0.0f, -3.5f)); // Alejar el cubo en Z
+        modelview = glm::rotate(modelview, angle, glm::vec3(0.5f, 1.0f, 0.2f)); // Rotación 3D en X, Y, Z
         glMatrixMode(GL_MODELVIEW);
-        glLoadMatrixf(glm::value_ptr(transform));
+        glLoadMatrixf(glm::value_ptr(modelview));
+      
 
 
 
@@ -205,7 +277,7 @@ int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo d
         // (Por ahora, la ventana se quedará en negro automáticamente)
         // --- NUEVO CÓDIGO DE OPENGL ---
 
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+      
         
         //triangulo
         //glBegin(GL_TRIANGLES);
@@ -244,7 +316,8 @@ int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo d
         //glDrawArrays(GL_TRIANGLES, 0, 3);
         //
 
-        glDrawArrays(GL_TRIANGLES, 0, 6);
+       /* glDrawArrays(GL_TRIANGLES, 0, 6);*/
+        glDrawArrays(GL_TRIANGLES, 0, 36);
 
         SDL_GL_SwapWindow(window);
 
@@ -260,6 +333,12 @@ int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo d
         //   // 3. Actualizar la ventana al final de cada frame para mostrar los cambios
         //   SDL_GL_SwapWindow(window);
     }
+    //muy importante de que limpiamos el variable puntero del window
+  // 4. Limpieza de memoria al salir
+    SDL_GL_DestroyContext(gl_context);
+    SDL_DestroyWindow(window);
+    SDL_Quit();//limpiamos las memorias y apagar los que hemos encendido durante la ejecutacion
+    fmt::print("Motor apagado correctamente.\n");
     return 0;
 
 }
@@ -270,5 +349,4 @@ int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo d
 //    SDL_Quit();//limpiamos las memorias y apagar los que hemos encendido durante la ejecutacion
 //    fmt::print("Motor apagado correctamente.\n");
 //
-//    return 0;
 //}
