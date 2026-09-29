@@ -2,7 +2,8 @@
   "dependencies": [
     "fmt",
     "glad",
+    "glm",
     "sdl3",
-    "glm"
+    "devil"
   ]
 }

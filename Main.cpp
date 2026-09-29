@@ -7,6 +7,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+#include <IL/il.h>//libreria devil
+
 
 
 int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo de contador sobre cantidad de operacion que has introducido, argv para guardar operaciones(su nombre, el valor etc), su posicion 0 siempre sera ocupado por el nombre de la programa en esta caso main.exe
@@ -121,6 +123,68 @@ int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo d
 
     //Z-Buffer
     glEnable(GL_DEPTH_TEST);
+
+    //Libreria devil
+    ilInit();//Inicializar libreria Devil
+
+    GLuint textureID;
+    glGenTextures(1, &textureID);
+    glBindTexture(GL_TEXTURE_2D, textureID);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+
+    ILuint imgName;
+    ilGenImages(1, &imgName);
+    ilBindImage(imgName);
+
+    if (ilLoadImage("assets/lenna.dds"))
+    {
+        // Convertimos la imagen cargada a un formato estándar RGBA de 8 bits por canal
+        ilConvertImage(IL_RGBA, IL_UNSIGNED_BYTE);
+
+        int tWidth = ilGetInteger(IL_IMAGE_WIDTH);
+        int tHeight = ilGetInteger(IL_IMAGE_HEIGHT);
+
+        // Subimos los datos a OpenGL
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, tWidth, tHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, ilGetData());
+
+        // Generamos los mipmaps (opcional pero recomendado)
+        glGenerateMipmap(GL_TEXTURE_2D);
+    }
+    ilDeleteImages(1, &imgName);
+
+    //static constexpr unsigned int tWidth = 512;
+    //static constexpr unsigned int tHeight = 256;
+    //struct RGB {
+    //    float r;
+    //    float g;
+    //    float b;
+    //    void operator=(const RGB& other) {
+    //        r = other.r;
+    //        g = other.g;
+    //        b = other.b;
+    //    }
+    //};
+    //RGB* checkerTexels = new RGB[tWidth * tHeight];
+
+        //enviar la textura a la VRAM de openGL
+       
+   
+
+        //Parámetros de texturas(Wrapping y Filtering)
+        
+        //glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, imgWidth, imgHeight,
+        //    0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+
+        glGenerateMipmap(GL_TEXTURE_2D);
+
+    
+
+
+    //
 
     //-------------------------------Triangulo-----------------------------------//
     //float v[] = { -0.5f,-0.5f,0.0f,0.5f,-0.5f,0.0f,0.0f,0.5f,0.0f };
@@ -316,6 +380,9 @@ int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo d
         //glDrawArrays(GL_TRIANGLES, 0, 3);
         //
 
+        glEnable(GL_TEXTURE_2D);
+        glBindTexture(GL_TEXTURE_2D,textureID);
+        glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
        /* glDrawArrays(GL_TRIANGLES, 0, 6);*/
         glDrawArrays(GL_TRIANGLES, 0, 36);
 
