@@ -1,8 +1,8 @@
-﻿#include<glad/glad.h>
+﻿#include <glad/glad.h>
 #include <SDL3/SDL.h>
 #include <fmt/core.h>
-#include<SDL3/SDL_main.h>
-
+#include <SDL3/SDL_main.h>
+#include <string>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -135,11 +135,50 @@ int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo d
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 
+    //ILuint imgName;
+    //ilGenImages(1, &imgName);
+    //ilBindImage(imgName);
+
+    //if (ilLoadImage("assets/Lenna.dds"))
+    //{
+    //    // Convertimos la imagen cargada a un formato estándar RGBA de 8 bits por canal
+    //    ilConvertImage(IL_RGBA, IL_UNSIGNED_BYTE);
+
+    //    int tWidth = ilGetInteger(IL_IMAGE_WIDTH);
+    //    int tHeight = ilGetInteger(IL_IMAGE_HEIGHT);
+
+    //    // Subimos los datos a OpenGL
+    //    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    //    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, tWidth, tHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, ilGetData());
+
+    //    // Generamos los mipmaps (opcional pero recomendado)
+    //    glGenerateMipmap(GL_TEXTURE_2D);
+    //    fmt::print("textura encontrada");
+    //}
+    //else {
+    //    fmt::print("no existe la imagen");
+    //}
+
+    //ilDeleteImages(1, &imgName);
+
+
+
+
     ILuint imgName;
     ilGenImages(1, &imgName);
     ilBindImage(imgName);
 
-    if (ilLoadImage("assets/lenna.dds"))
+    // Obtenemos la ruta absoluta donde está el ejecutable con SDL3
+    std::string texturePath = "assets/Lenna.dds";
+    const char* basePath = SDL_GetBasePath();
+    if (basePath) {
+        texturePath = std::string(basePath) + "assets/Lenna.dds";
+       
+    }
+
+    fmt::print("Intentando cargar imagen en: {}\n", texturePath);
+
+    if (ilLoadImage(texturePath.c_str()))
     {
         // Convertimos la imagen cargada a un formato estándar RGBA de 8 bits por canal
         ilConvertImage(IL_RGBA, IL_UNSIGNED_BYTE);
@@ -153,8 +192,15 @@ int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo d
 
         // Generamos los mipmaps (opcional pero recomendado)
         glGenerateMipmap(GL_TEXTURE_2D);
+        fmt::print("¡Textura encontrada y cargada con éxito!\n");
     }
+    else {
+        fmt::print("No se pudo cargar la imagen. Verifica que la carpeta 'assets' esté junto al ejecutable.\n");
+    }
+
     ilDeleteImages(1, &imgName);
+
+
 
     //static constexpr unsigned int tWidth = 512;
     //static constexpr unsigned int tHeight = 256;
@@ -254,14 +300,40 @@ int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo d
             c[index + 2] = colorsPerFace[face][2];
         }
     }
+    
+    //UV de las imagen
+    float uvs[]={
+        //Cara frontal(XY)
+        0.0f,0.0f, 1.0f, 0.0f, 1.0f,1.0f,
+        0.0f,0.0f, 1.0f, 1.0f, 0.0f,1.0f,
+        //Cara trasera(-XY) cara frontal pero eje x invertida por la camara
+        1.0f,0.0f, 1.0f,1.0f, 0.0f,1.0f,
+        1.0f,0.0f, 0.0f, 1.0f, 0.0f,0.0f,
+        //Cara izquierda(ZY)
+        1.0f,1.0f, 1.0f,0.0f, 0.0f,0.0f,
+        1.0f,1.0f, 0.0f,0.0f, 0.0f,1.0f,
+        //Cara derecha(-ZY) coloca la camara en la cara derecha
+        0.0f,1.0f, 1.0f,0.0f, 0.0f,0.0f,
+        1.0f,0.0f, 0.0f,1.0f, 1.0f,1.0f,
+        //Cara superior(XZ)
+        0.0f,1.0f, 0.0f,0.0f, 1.0f,0.0f,
+        0.0f,1.0f, 1.0f,0.0f, 1.0f,1.0f,
+        //Cara inferior(-XZ)
+        0.0f,1.0f, 1.0f,1.0f, 1.0f,0.0f,
+        0.0f,1.0f, 1.0f,0.0f, 0.0f,0.0f
 
-    GLuint buffs[2];
-    glGenBuffers(2, buffs);
+    };
+
+    //el arreglo a 3buffer(posiciones,colores,UVS)
+    GLuint buffs[3];
+    glGenBuffers(3, buffs);
     glBindBuffer(GL_ARRAY_BUFFER, buffs[0]);
     glBufferData(GL_ARRAY_BUFFER, sizeof(v), v, GL_STATIC_DRAW);
     glBindBuffer(GL_ARRAY_BUFFER, buffs[1]);
     glBufferData(GL_ARRAY_BUFFER, sizeof(c), c, GL_STATIC_DRAW);
-
+    glBindBuffer(GL_ARRAY_BUFFER, buffs[2]);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(uvs), uvs, GL_STATIC_DRAW);
+        
     ////triangulo
     //float vertices[] = {
     //    -0.5f, -0.5f,0.0f, 1.0f, 0.0f,0.0f,0.5f,-0.5f,0.0f,0.0f,1.0f,0.0f,0.0f,0.5f,0.0f,0.0f,0.0f,1.0f
@@ -362,7 +434,7 @@ int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo d
 
         glEnableClientState(GL_VERTEX_ARRAY);
         glEnableClientState(GL_COLOR_ARRAY);
-       
+        glEnableClientState(GL_TEXTURE_COORD_ARRAY);// <-- 1. ACTIVAR ESTADO DE TEXTURAS
         //triangulo
         /*glVertexPointer(3, GL_FLOAT, 0, v);*/
         /*glColorPointer(3, GL_FLOAT, 0, c);*/
@@ -372,6 +444,8 @@ int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo d
         glVertexPointer(3, GL_FLOAT, 0, NULL);
         glBindBuffer(GL_ARRAY_BUFFER, buffs[1]);
         glColorPointer(3, GL_FLOAT, 0, NULL);
+        glBindBuffer(GL_ARRAY_BUFFER, buffs[2]);
+        glTexCoordPointer(2, GL_FLOAT,0,NULL);// <-- 2. ENLAZAR BUFFER DE UVs (2 floats: U y V)
 
         //triangulo
         //glBindBuffer(GL_ARRAY_BUFFER, vBuff);
@@ -386,6 +460,10 @@ int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo d
        /* glDrawArrays(GL_TRIANGLES, 0, 6);*/
         glDrawArrays(GL_TRIANGLES, 0, 36);
 
+        //Desactiva despues de uso
+        glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+        glDisableClientState(GL_COLOR_ARRAY);
+        glDisableClientState(GL_VERTEX_ARRAY);
         SDL_GL_SwapWindow(window);
 
 
