@@ -3,6 +3,8 @@
 #include <fmt/core.h>
 #include <SDL3/SDL_main.h>
 #include <string>
+#include <filesystem>
+
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -139,13 +141,20 @@ int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo d
     ilGenImages(1, &imgName);
     ilBindImage(imgName);
 
-    if (ilLoadImage("assets/Lenna.dds"))
+    fmt::print("Working directory: {}\n",
+        std::filesystem::current_path().string());
+
+    fmt::print("Lenna existe: {}\n",
+        std::filesystem::exists("../assets/Lenna.dds"));
+
+    if (ilLoadImage("../assets/Lenna.dds"))
     {
         // Convertimos la imagen cargada a un formato estándar RGBA de 8 bits por canal
         ilConvertImage(IL_RGBA, IL_UNSIGNED_BYTE);
 
         int tWidth = ilGetInteger(IL_IMAGE_WIDTH);
         int tHeight = ilGetInteger(IL_IMAGE_HEIGHT);
+        fmt::print("Dimensiones decodificadas: {}x{}\n", tWidth, tHeight);
 
         // Subimos los datos a OpenGL
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
@@ -156,17 +165,12 @@ int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo d
         fmt::print("textura encontrada");
     }
     else {
-        fmt::print("no existe la imagen");
+        ILenum error = ilGetError();
+        fmt::print("Error de DevIL código: {}\n", error);
     }
+  
 
     ilDeleteImages(1, &imgName);
-
-
-
-
-
-
-
 
     //static constexpr unsigned int tWidth = 512;
     //static constexpr unsigned int tHeight = 256;
@@ -399,7 +403,7 @@ int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo d
         // 
 
         glEnableClientState(GL_VERTEX_ARRAY);
-        glEnableClientState(GL_COLOR_ARRAY);
+        /*glEnableClientState(GL_COLOR_ARRAY);*/
         glEnableClientState(GL_TEXTURE_COORD_ARRAY);// <-- 1. ACTIVAR ESTADO DE TEXTURAS
         //triangulo
         /*glVertexPointer(3, GL_FLOAT, 0, v);*/
@@ -408,11 +412,11 @@ int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo d
         
         glBindBuffer(GL_ARRAY_BUFFER, buffs[0]);
         glVertexPointer(3, GL_FLOAT, 0, NULL);
-        glBindBuffer(GL_ARRAY_BUFFER, buffs[1]);
-        glColorPointer(3, GL_FLOAT, 0, NULL);
+      /*  glBindBuffer(GL_ARRAY_BUFFER, buffs[1]);
+        glColorPointer(3, GL_FLOAT, 0, NULL);*/
         glBindBuffer(GL_ARRAY_BUFFER, buffs[2]);
         glTexCoordPointer(2, GL_FLOAT,0,NULL);// <-- 2. ENLAZAR BUFFER DE UVs (2 floats: U y V)
-
+        glColor3f(1.0f, 1.0f, 1.0f);
         //triangulo
         //glBindBuffer(GL_ARRAY_BUFFER, vBuff);
         //glVertexPointer(3, GL_FLOAT, sizeof(float) * 6, NULL);
