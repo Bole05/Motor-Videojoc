@@ -135,50 +135,11 @@ int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo d
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 
-    //ILuint imgName;
-    //ilGenImages(1, &imgName);
-    //ilBindImage(imgName);
-
-    //if (ilLoadImage("assets/Lenna.dds"))
-    //{
-    //    // Convertimos la imagen cargada a un formato estándar RGBA de 8 bits por canal
-    //    ilConvertImage(IL_RGBA, IL_UNSIGNED_BYTE);
-
-    //    int tWidth = ilGetInteger(IL_IMAGE_WIDTH);
-    //    int tHeight = ilGetInteger(IL_IMAGE_HEIGHT);
-
-    //    // Subimos los datos a OpenGL
-    //    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    //    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, tWidth, tHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, ilGetData());
-
-    //    // Generamos los mipmaps (opcional pero recomendado)
-    //    glGenerateMipmap(GL_TEXTURE_2D);
-    //    fmt::print("textura encontrada");
-    //}
-    //else {
-    //    fmt::print("no existe la imagen");
-    //}
-
-    //ilDeleteImages(1, &imgName);
-
-
-
-
     ILuint imgName;
     ilGenImages(1, &imgName);
     ilBindImage(imgName);
 
-    // Obtenemos la ruta absoluta donde está el ejecutable con SDL3
-    std::string texturePath = "assets/Lenna.dds";
-    const char* basePath = SDL_GetBasePath();
-    if (basePath) {
-        texturePath = std::string(basePath) + "assets/Lenna.dds";
-       
-    }
-
-    fmt::print("Intentando cargar imagen en: {}\n", texturePath);
-
-    if (ilLoadImage(texturePath.c_str()))
+    if (ilLoadImage("assets/Lenna.dds"))
     {
         // Convertimos la imagen cargada a un formato estándar RGBA de 8 bits por canal
         ilConvertImage(IL_RGBA, IL_UNSIGNED_BYTE);
@@ -192,13 +153,18 @@ int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo d
 
         // Generamos los mipmaps (opcional pero recomendado)
         glGenerateMipmap(GL_TEXTURE_2D);
-        fmt::print("¡Textura encontrada y cargada con éxito!\n");
+        fmt::print("textura encontrada");
     }
     else {
-        fmt::print("No se pudo cargar la imagen. Verifica que la carpeta 'assets' esté junto al ejecutable.\n");
+        fmt::print("no existe la imagen");
     }
 
     ilDeleteImages(1, &imgName);
+
+
+
+
+
 
 
 
