@@ -5,6 +5,11 @@
 #include <string>
 #include <vector>
 
+//
+#include <assimp/cimport.h>
+#include <Assimp/scene.h>
+#include <Assimp/postprocess.h>
+//
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -144,9 +149,18 @@ int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo d
     ilBindImage(imgName);
 
     // Intentar buscar la textura en varias rutas posibles (según desde dónde se ejecute el programa)
-    const char* sdlBasePath = SDL_GetBasePath();
-    std::string basePath = sdlBasePath ? sdlBasePath : "";
+    //Y su funcion funamental és buscar la ruta 
 
+    //Lo que hace es como pedirle el GPS al sistema operativo: le pregunta a Windows:
+
+   // "¿En qué carpeta exacta de mi disco duro está guardado este Motor.exe que se está ejecutando ahora mismo?"
+    //Y Windows le responde con una única dirección de texto fija
+    const char* sdlBasePath = SDL_GetBasePath();
+    //Lo que esta intendando es asegurar de que la programa no romper en cuando parece un error durante ejecutación
+
+    //esta asegurando de que ejecuta con.exe, si no lo es, modificar la dirección de la textura para que la programa ejecuta
+    std::string basePath = sdlBasePath ? sdlBasePath : "";
+    //                     [Condición]   [Si es true]  [Si es false]
     std::vector<std::string> candidatePaths = {
         basePath + "assets/Lenna.dds",
         basePath + "assets/Lenna.png",
@@ -158,6 +172,7 @@ int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo d
         "../../assets/Lenna.png"
     };
 
+    //Fase 1: El bucle de búsqueda (Lectura en RAM)
     bool loaded = false;
     for (const auto& path : candidatePaths) {
         if (ilLoadImage(path.c_str()))
@@ -168,6 +183,7 @@ int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo d
         }
     }
 
+    //Fase 2: Preparar y subir la textura a la Tarjeta Gráfica (OpenGL)
     if (loaded)
     {
         // Convertimos la imagen cargada a un formato estándar RGBA de 8 bits por canal
@@ -468,6 +484,8 @@ int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo d
     }
     //muy importante de que limpiamos el variable puntero del window
   // 4. Limpieza de memoria al salir
+
+
     SDL_GL_DestroyContext(gl_context);
     SDL_DestroyWindow(window);
     SDL_Quit();//limpiamos las memorias y apagar los que hemos encendido durante la ejecutacion
