@@ -1,9 +1,10 @@
-﻿#include <glad/glad.h>
+#include <glad/glad.h>
 #include <SDL3/SDL.h>
 #include <fmt/core.h>
 #include <SDL3/SDL_main.h>
 #include <string>
-#include <filesystem>
+#include <vector>
+
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -15,8 +16,7 @@
 
 int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo de contador sobre cantidad de operacion que has introducido, argv para guardar operaciones(su nombre, el valor etc), su posicion 0 siempre sera ocupado por el nombre de la programa en esta caso main.exe
     // 1. Inicializar el subsistema de video de SDL3
-    if (SDL_Init(SDL_INIT_VIDEO) < 0) {//SDL int su funcion es como un mechero, osea carga de encender la librerian sdl3, y como que en este situacion solo necesitamos que la parte del video que se enciende, por lo tanto escribirle dentro del parectesis de que solo queremos activar la parte de video 
-        //pq <0, significa que existe algu error de que el sistema que no se puede encenderlo, pues avisa por la pantalla de que existe error de que esta rompiendo la ejecutación de la programa
+    if (!SDL_Init(SDL_INIT_VIDEO)) {
         fmt::print("Error al inicializar SDL3: {}\n", SDL_GetError());
         return -1;//retornamos -1 para que el sistema sabe que algo que esta mal
     }
@@ -128,6 +128,8 @@ int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo d
 
     //Libreria devil
     ilInit();//Inicializar libreria Devil
+    ilEnable(IL_ORIGIN_SET);
+    ilOriginFunc(IL_ORIGIN_LOWER_LEFT); // Orientar la textura correctamente para las coordenadas UV de OpenGL
 
     GLuint textureID;
     glGenTextures(1, &textureID);
@@ -141,13 +143,32 @@ int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo d
     ilGenImages(1, &imgName);
     ilBindImage(imgName);
 
-    fmt::print("Working directory: {}\n",
-        std::filesystem::current_path().string());
+    // Intentar buscar la textura en varias rutas posibles (según desde dónde se ejecute el programa)
+    const char* sdlBasePath = SDL_GetBasePath();
+    std::string basePath = sdlBasePath ? sdlBasePath : "";
 
-    fmt::print("Lenna existe: {}\n",
-        std::filesystem::exists("../assets/Lenna.dds"));
+    std::vector<std::string> candidatePaths = {
+        basePath + "assets/Lenna.dds",
+        basePath + "assets/Lenna.png",
+        "assets/Lenna.dds",
+        "assets/Lenna.png",
+        "../assets/Lenna.dds",
+        "../assets/Lenna.png",
+        "../../assets/Lenna.dds",
+        "../../assets/Lenna.png"
+    };
 
-    if (ilLoadImage("../assets/Lenna.dds"))
+    bool loaded = false;
+    for (const auto& path : candidatePaths) {
+        if (ilLoadImage(path.c_str()))
+        {
+            fmt::print("Textura encontrada y cargada desde: {}\n", path);
+            loaded = true;
+            break;
+        }
+    }
+
+    if (loaded)
     {
         // Convertimos la imagen cargada a un formato estándar RGBA de 8 bits por canal
         ilConvertImage(IL_RGBA, IL_UNSIGNED_BYTE);
@@ -162,11 +183,11 @@ int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo d
 
         // Generamos los mipmaps (opcional pero recomendado)
         glGenerateMipmap(GL_TEXTURE_2D);
-        fmt::print("textura encontrada");
+        fmt::print("Textura cargada correctamente en la GPU.\n");
     }
     else {
         ILenum error = ilGetError();
-        fmt::print("Error de DevIL código: {}\n", error);
+        fmt::print("Error de DevIL código: 0x{:X} ({})\n", error, error);
     }
   
 
@@ -194,9 +215,6 @@ int main(int argc, char* argv[]) {    //int argc y argv, argc carga el trabajo d
         
         //glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, imgWidth, imgHeight,
         //    0, GL_RGBA, GL_UNSIGNED_BYTE, data);
-
-        glGenerateMipmap(GL_TEXTURE_2D);
-
     
 
 
