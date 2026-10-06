@@ -25,6 +25,8 @@ bool Engine::Init() {
     if (!window.Init("Engine", initialWidth, initialHeight, true, false)) {
         return false;
     }
+    // Arrasgar fichero
+    SDL_SetEventEnabled(SDL_EVENT_DROP_FILE, true);
 
     // 2. Inicializar Glad (para cargar los punteros de función de OpenGL desde el driver)
     // reinterpret_cast<GLADloadproc>(...): convierte el puntero de SDL al formato esperado por Glad
@@ -164,6 +166,12 @@ void Engine::ProcessInput() {
 
             // Ajustar el área de renderizado al nuevo tamaño de ventana
             glViewport(0, 0, newWidth, newHeight);
+        }
+        else if (event.type == SDL_EVENT_DROP_FILE) {
+            std::string path = event.drop.data;  // ruta del fichero arrastrado
+            LOG("Fichero arrastrado: %s", path.c_str());
+            geometria.Load(path);                // cargar el FBX
+            SDL_free((void*)event.drop.data);           // liberar memoria de SDL
         }
     }
 }

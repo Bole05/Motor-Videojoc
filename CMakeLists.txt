@@ -19,6 +19,10 @@ add_executable(Motor
     Texture.cpp
     Engine.h
     Engine.cpp
+    Geometria.h
+    Geometria.cpp
+    Log.h
+    Log.cpp
 )
 
 target_link_libraries(Motor PRIVATE fmt::fmt SDL3::SDL3 glad::glad DevIL::IL DevIL::ILU assimp::assimp)

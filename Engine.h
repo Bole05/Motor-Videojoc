@@ -4,6 +4,8 @@
 #include <glm/glm.hpp>
 #include "Window.h"
 #include "Texture.h"
+#include "Log.h"
+#include "Geometria.h"
 
 class Engine {
 public:
@@ -41,4 +43,6 @@ private:
 
     // Ángulo de rotación del objeto 3D
     float angle = 0.0f;
+
+    Geometria geometria;
 };
