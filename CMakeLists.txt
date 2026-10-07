@@ -19,6 +19,8 @@ add_executable(Motor
     Texture.cpp
     Engine.h
     Engine.cpp
+    Renderer.h
+    Renderer.cpp
     Geometria.h
     Geometria.cpp
     Log.h

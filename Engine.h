@@ -1,30 +1,25 @@
 #pragma once
 
-#include <glad/glad.h>
-#include <glm/glm.hpp>
+#include <SDL3/SDL.h>
 #include "Window.h"
-#include "Texture.h"
+#include "Renderer.h"
 #include "Log.h"
-#include "Geometria.h"
 
+// Engine: gestiona el ciclo de vida del motor (bucle principal, ventana, eventos).
+// Toda la lógica de renderizado vive en Renderer.
 class Engine {
 public:
     Engine();
     ~Engine();
 
-    // Inicializa subsistemas: Ventana, Glad (OpenGL), Viewport, Recursos (Textura y Cubo)
+    // Inicializa ventana, contexto OpenGL (GLAD) y el Renderer
     bool Init();
 
-    // Bucle principal del motor (ProcessInput -> Update -> Render)
+    // Ejecuta el bucle principal hasta que el usuario cierre la ventana
     void Run();
 
-    // Libera memoria de la GPU (buffers, textura) y cierra la ventana
+    // Libera todos los recursos y cierra la ventana
     void CleanUp();
-
-    // Métodos del ciclo de vida del frame
-    void ProcessInput();
-    void Update();
-    void Render();
 
     // Getters
     Window& GetWindow() { return window; }
@@ -32,17 +27,11 @@ public:
     bool IsRunning() const { return isRunning; }
 
 private:
-    void InitGeometry();
+    void ProcessInput();  // Gestiona eventos SDL (cierre, resize, drag & drop)
+    void Update();        // Avanza la lógica del frame
+    void Render();        // Delega el render al Renderer
 
-    Window window;
-    Texture texture;
+    Window   window;
+    Renderer renderer;
     bool isRunning = false;
-
-    // Buffers de OpenGL para el cubo: 0: Posiciones, 1: Colores, 2: Coordenadas UV
-    GLuint buffs[3] = {0, 0, 0};
-
-    // Ángulo de rotación del objeto 3D
-    float angle = 0.0f;
-
-    Geometria geometria;
 };
