@@ -28,6 +28,8 @@ add_executable(Motor
     ModelObject.h
     Log.h
     Log.cpp
+    GameObject.h
+    Component.h
 )
 
 target_link_libraries(Motor PRIVATE fmt::fmt SDL3::SDL3 glad::glad DevIL::IL DevIL::ILU assimp::assimp imgui::imgui glm::glm)
