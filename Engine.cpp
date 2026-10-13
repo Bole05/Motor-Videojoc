@@ -1,24 +1,26 @@
 #include "Engine.h"
 #include <glad/glad.h>
 #include <fmt/core.h>
+#include <imgui.h>
+#include <imgui_impl_sdl3.h>
 
 // ─────────────────────────────────────────────
 //  Constructor / Destructor
 // ─────────────────────────────────────────────
 
-Engine::Engine() : isRunning(false) {}
+Engine::Engine() : isRunning(false), lastTime(0) {}
 
 Engine::~Engine() {
     CleanUp();
 }
 
 // ─────────────────────────────────────────────
-//  Init: ventana → GLAD → estado OpenGL → Renderer
+//  Init: ventana → GLAD → estado OpenGL → Renderer (con ImGui)
 // ─────────────────────────────────────────────
 
 bool Engine::Init() {
     // 1. Crear ventana y contexto OpenGL
-    if (!window.Init("Engine", 1280, 720, true, false)) {
+    if (!window.Init("Motor 3D - Model Viewer & Editor", 1280, 720, true, false)) {
         return false;
     }
 
@@ -39,11 +41,15 @@ bool Engine::Init() {
 
     // 3. Estado global de OpenGL
     glViewport(0, 0, window.GetWidth(), window.GetHeight());
-    glClearColor(0.1f, 0.1f, 0.15f, 1.0f);
     glEnable(GL_DEPTH_TEST);
 
-    // 4. Inicializar el Renderer (necesita contexto OpenGL activo)
-    return renderer.Init();
+    // 4. Inicializar el Renderer e ImGui (necesita contexto OpenGL y Window)
+    if (!renderer.Init(window)) {
+        return false;
+    }
+
+    lastTime = SDL_GetTicks();
+    return true;
 }
 
 // ─────────────────────────────────────────────
@@ -60,12 +66,16 @@ void Engine::Run() {
 }
 
 // ─────────────────────────────────────────────
-//  ProcessInput: eventos SDL
+//  ProcessInput: eventos SDL, ImGui, ratón y teclado
 // ─────────────────────────────────────────────
 
 void Engine::ProcessInput() {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
+        // Enviar eventos a Dear ImGui
+        ImGui_ImplSDL3_ProcessEvent(&event);
+
+        ImGuiIO& io = ImGui::GetIO();
 
         if (event.type == SDL_EVENT_QUIT) {
             isRunning = false;
@@ -78,20 +88,56 @@ void Engine::ProcessInput() {
             glViewport(0, 0, w, h);
         }
         else if (event.type == SDL_EVENT_DROP_FILE) {
-            // En SDL3, event.drop.data es un puntero interno → copiar inmediatamente
             std::string path = event.drop.data;
             LOG("Fichero arrastrado: %s", path.c_str());
-            renderer.LoadModel(path);
+            renderer.AddModel(path);
+        }
+        else if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
+            if (!io.WantCaptureMouse) {
+                if (event.button.button == SDL_BUTTON_RIGHT || event.button.button == SDL_BUTTON_MIDDLE) {
+                    renderer.SetMouseDragging(true);
+                }
+            }
+        }
+        else if (event.type == SDL_EVENT_MOUSE_BUTTON_UP) {
+            if (event.button.button == SDL_BUTTON_RIGHT || event.button.button == SDL_BUTTON_MIDDLE) {
+                renderer.SetMouseDragging(false);
+            }
+        }
+        else if (event.type == SDL_EVENT_MOUSE_MOTION) {
+            if (renderer.IsMouseDragging()) {
+                renderer.OnMouseMoved(event.motion.xrel, event.motion.yrel);
+            }
+        }
+        else if (event.type == SDL_EVENT_MOUSE_WHEEL) {
+            if (!io.WantCaptureMouse) {
+                renderer.OnMouseWheel(event.wheel.y);
+            }
+        }
+        else if (event.type == SDL_EVENT_KEY_DOWN) {
+            if (!io.WantTextInput) {
+                // Atajos de modelado tipo Blender / Unity
+                if (event.key.key == SDLK_DELETE) {
+                    renderer.DeleteSelected();
+                }
+                else if (event.key.key == SDLK_D && (event.key.mod & SDL_KMOD_CTRL)) {
+                    renderer.DuplicateSelected();
+                }
+            }
         }
     }
 }
 
 // ─────────────────────────────────────────────
-//  Update / Render: delegan al Renderer
+//  Update / Render
 // ─────────────────────────────────────────────
 
 void Engine::Update() {
-    renderer.Update();
+    Uint64 now = SDL_GetTicks();
+    float deltaTime = (lastTime > 0) ? static_cast<float>(now - lastTime) / 1000.0f : 0.016f;
+    lastTime = now;
+
+    renderer.Update(deltaTime);
 }
 
 void Engine::Render() {

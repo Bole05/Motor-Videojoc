@@ -6,7 +6,7 @@
 #include "Log.h"
 
 // Engine: gestiona el ciclo de vida del motor (bucle principal, ventana, eventos).
-// Toda la lógica de renderizado vive en Renderer.
+// Toda la lógica de renderizado e interfaz vive en Renderer.
 class Engine {
 public:
     Engine();
@@ -27,11 +27,12 @@ public:
     bool IsRunning() const { return isRunning; }
 
 private:
-    void ProcessInput();  // Gestiona eventos SDL (cierre, resize, drag & drop)
-    void Update();        // Avanza la lógica del frame
+    void ProcessInput();  // Gestiona eventos SDL (cierre, resize, drag & drop, ratón, teclado)
+    void Update();        // Avanza la lógica del frame con deltaTime
     void Render();        // Delega el render al Renderer
 
     Window   window;
     Renderer renderer;
     bool isRunning = false;
+    Uint64 lastTime = 0;
 };

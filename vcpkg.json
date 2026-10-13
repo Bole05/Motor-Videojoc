@@ -1,10 +1,18 @@
 {
   "dependencies": [
+    "assimp",
     "devil",
     "fmt",
     "glad",
     "glm",
-    "sdl3",
-    "assimp"
+    {
+      "name": "imgui",
+      "default-features": false,
+      "features": [
+        "opengl3-binding",
+        "sdl3-binding"
+      ]
+    },
+    "sdl3"
   ]
 }

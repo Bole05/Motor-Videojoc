@@ -4,7 +4,10 @@
 #include <algorithm>
 
 Geometria::Geometria() {}
-Geometria::~Geometria() {}
+
+Geometria::~Geometria() {
+	CleanUp();
+}
 
 void Geometria::DebugInit() {
 	aiLogStream stream;
@@ -12,131 +15,163 @@ void Geometria::DebugInit() {
 	aiAttachLogStream(&stream);
 }
 
-void Geometria::Load(const std::string& file_path) {
-	// Limpiar malla anterior antes de cargar una nueva
+bool Geometria::Load(const std::string& file_path) {
+	// Limpiar mallas anteriores antes de cargar una nueva
 	CleanUp();
 
 	const aiScene* scene = aiImportFile(file_path.c_str(), aiProcessPreset_TargetRealtime_MaxQuality);
-	if (scene != nullptr && scene->HasMeshes()) {
-		aiMesh* aiMesh = scene->mMeshes[0];
+	if (!scene || !scene->HasMeshes()) {
+		LOG("Error loading scene %s: %s", file_path.c_str(), aiGetErrorString());
+		return false;
+	}
 
-		// Copiar vértices a RAM
-		ourMesh.num_vertex = aiMesh->mNumVertices;
-		ourMesh.vertex = new float[ourMesh.num_vertex * 3];
-		memcpy(ourMesh.vertex, aiMesh->mVertices, sizeof(float) * ourMesh.num_vertex * 3);
+	filePath = file_path;
+	glm::vec3 minV(FLT_MAX);
+	glm::vec3 maxV(-FLT_MAX);
+	totalVertices = 0;
+	totalTriangles = 0;
 
-		// Calcular Bounding Box (AABB) para centrar y normalizar el modelo
-		glm::vec3 minV(FLT_MAX), maxV(-FLT_MAX);
-		for (unsigned int i = 0; i < ourMesh.num_vertex; ++i) {
-			float x = ourMesh.vertex[i * 3 + 0];
-			float y = ourMesh.vertex[i * 3 + 1];
-			float z = ourMesh.vertex[i * 3 + 2];
+	meshes.reserve(scene->mNumMeshes);
+
+	for (unsigned int m = 0; m < scene->mNumMeshes; ++m) {
+		const aiMesh* ai_mesh = scene->mMeshes[m];
+		if (!ai_mesh || ai_mesh->mNumVertices == 0) continue;
+
+		Mesh mesh;
+		mesh.num_vertex = ai_mesh->mNumVertices;
+		totalVertices += mesh.num_vertex;
+
+		// Vértices
+		mesh.vertex = new float[mesh.num_vertex * 3];
+		memcpy(mesh.vertex, ai_mesh->mVertices, sizeof(float) * mesh.num_vertex * 3);
+
+		// Actualizar Bounding Box global
+		for (unsigned int i = 0; i < mesh.num_vertex; ++i) {
+			float x = mesh.vertex[i * 3 + 0];
+			float y = mesh.vertex[i * 3 + 1];
+			float z = mesh.vertex[i * 3 + 2];
 			minV.x = std::min(minV.x, x);  minV.y = std::min(minV.y, y);  minV.z = std::min(minV.z, z);
 			maxV.x = std::max(maxV.x, x);  maxV.y = std::max(maxV.y, y);  maxV.z = std::max(maxV.z, z);
 		}
+
+		// Subir vértices a GPU
+		glGenBuffers(1, &mesh.id_vertex);
+		glBindBuffer(GL_ARRAY_BUFFER, mesh.id_vertex);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(float) * mesh.num_vertex * 3, mesh.vertex, GL_STATIC_DRAW);
+
+		// Normales
+		if (ai_mesh->HasNormals()) {
+			mesh.normal = new float[mesh.num_vertex * 3];
+			memcpy(mesh.normal, ai_mesh->mNormals, sizeof(float) * mesh.num_vertex * 3);
+			glGenBuffers(1, &mesh.id_normal);
+			glBindBuffer(GL_ARRAY_BUFFER, mesh.id_normal);
+			glBufferData(GL_ARRAY_BUFFER, sizeof(float) * mesh.num_vertex * 3, mesh.normal, GL_STATIC_DRAW);
+		}
+
+		// Caras / Índices
+		if (ai_mesh->HasFaces()) {
+			mesh.num_index = ai_mesh->mNumFaces * 3;
+			totalTriangles += ai_mesh->mNumFaces;
+			mesh.index = new unsigned int[mesh.num_index];
+			for (unsigned int f = 0; f < ai_mesh->mNumFaces; ++f) {
+				if (ai_mesh->mFaces[f].mNumIndices == 3) {
+					memcpy(&mesh.index[f * 3], ai_mesh->mFaces[f].mIndices, 3 * sizeof(unsigned int));
+				} else {
+					mesh.index[f * 3 + 0] = 0;
+					mesh.index[f * 3 + 1] = 0;
+					mesh.index[f * 3 + 2] = 0;
+				}
+			}
+
+			glGenBuffers(1, &mesh.id_index);
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.id_index);
+			glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned int) * mesh.num_index, mesh.index, GL_STATIC_DRAW);
+		}
+
+		meshes.push_back(mesh);
+	}
+
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+
+	if (!meshes.empty() && totalVertices > 0) {
 		meshCenter = (minV + maxV) * 0.5f;
 		meshRadius = glm::length(maxV - meshCenter);
 		if (meshRadius < 0.0001f) meshRadius = 1.0f;
-
-		LOG("New mesh with %d vertices", ourMesh.num_vertex);
-		LOG("AABB center=(%.2f, %.2f, %.2f)  radius=%.2f", meshCenter.x, meshCenter.y, meshCenter.z, meshRadius);
-
-		// Copiar índices a RAM
-		if (aiMesh->HasFaces()) {
-			ourMesh.num_index = aiMesh->mNumFaces * 3;
-			ourMesh.index = new unsigned int[ourMesh.num_index];
-			for (unsigned int i = 0; i < aiMesh->mNumFaces; ++i) {
-				if (aiMesh->mFaces[i].mNumIndices != 3)
-					LOG("WARNING, geometry face with != 3 indices!");
-				else
-					memcpy(&ourMesh.index[i * 3], aiMesh->mFaces[i].mIndices, 3 * sizeof(unsigned int));
-			}
-		}
-
-		// Subir vértices a la GPU
-		glGenBuffers(1, &ourMesh.id_vertex);
-		glBindBuffer(GL_ARRAY_BUFFER, ourMesh.id_vertex);
-		glBufferData(GL_ARRAY_BUFFER, sizeof(float) * ourMesh.num_vertex * 3, ourMesh.vertex, GL_STATIC_DRAW);
-
-		// Subir normales a la GPU (necesarias para iluminación 3D)
-		if (aiMesh->HasNormals()) {
-			ourMesh.normal = new float[ourMesh.num_vertex * 3];
-			memcpy(ourMesh.normal, aiMesh->mNormals, sizeof(float) * ourMesh.num_vertex * 3);
-			glGenBuffers(1, &ourMesh.id_normal);
-			glBindBuffer(GL_ARRAY_BUFFER, ourMesh.id_normal);
-			glBufferData(GL_ARRAY_BUFFER, sizeof(float) * ourMesh.num_vertex * 3, ourMesh.normal, GL_STATIC_DRAW);
-			LOG("Normales cargadas correctamente");
-		}
-		else {
-			LOG("WARNING: el modelo no tiene normales, la iluminacion no funcionara");
-		}
-
-		// Subir índices a la GPU
-		glGenBuffers(1, &ourMesh.id_index);
-		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ourMesh.id_index);
-		glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned int) * ourMesh.num_index, ourMesh.index, GL_STATIC_DRAW);
-
-		aiReleaseImport(scene);
 		hasLoaded = true;
+
+		LOG("Modelo cargado: %s (%zu submallas, %u vertices, %u triangulos)",
+			file_path.c_str(), meshes.size(), totalVertices, totalTriangles);
+		LOG("AABB center=(%.2f, %.2f, %.2f) radius=%.2f", meshCenter.x, meshCenter.y, meshCenter.z, meshRadius);
 	}
-	else {
-		LOG("Error loading scene %s", file_path.c_str());
-	}
+
+	aiReleaseImport(scene);
+	return hasLoaded;
 }
 
 void Geometria::Draw() const {
-	if (!hasLoaded) return;
+	if (!hasLoaded || meshes.empty()) return;
 
-	// Auto-centrar y normalizar (glScalef primero, glTranslatef después = orden inverso OpenGL)
+	// Auto-centrar y normalizar a tamaño estándar
 	float s = 1.0f / meshRadius;
 	glScalef(s, s, s);
 	glTranslatef(-meshCenter.x, -meshCenter.y, -meshCenter.z);
 
 	glEnableClientState(GL_VERTEX_ARRAY);
-	glBindBuffer(GL_ARRAY_BUFFER, ourMesh.id_vertex);
-	glVertexPointer(3, GL_FLOAT, 0, nullptr);
 
-	// Normales → permiten que GL_LIGHTING calcule sombreado 3D
-	if (ourMesh.id_normal != 0) {
-		glEnableClientState(GL_NORMAL_ARRAY);
-		glBindBuffer(GL_ARRAY_BUFFER, ourMesh.id_normal);
-		glNormalPointer(GL_FLOAT, 0, nullptr);
+	for (const auto& mesh : meshes) {
+		if (mesh.id_vertex == 0 || mesh.id_index == 0) continue;
+
+		glBindBuffer(GL_ARRAY_BUFFER, mesh.id_vertex);
+		glVertexPointer(3, GL_FLOAT, 0, nullptr);
+
+		if (mesh.id_normal != 0) {
+			glEnableClientState(GL_NORMAL_ARRAY);
+			glBindBuffer(GL_ARRAY_BUFFER, mesh.id_normal);
+			glNormalPointer(GL_FLOAT, 0, nullptr);
+		} else {
+			glDisableClientState(GL_NORMAL_ARRAY);
+		}
+
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.id_index);
+		glDrawElements(GL_TRIANGLES, mesh.num_index, GL_UNSIGNED_INT, nullptr);
 	}
 
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ourMesh.id_index);
-	glDrawElements(GL_TRIANGLES, ourMesh.num_index, GL_UNSIGNED_INT, nullptr);
-
 	glDisableClientState(GL_VERTEX_ARRAY);
-	if (ourMesh.id_normal != 0)
-		glDisableClientState(GL_NORMAL_ARRAY);
+	glDisableClientState(GL_NORMAL_ARRAY);
 
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 }
 
 void Geometria::CleanUp() {
-	// Liberar buffers de la GPU si existen
-	if (ourMesh.id_vertex != 0) {
-		glDeleteBuffers(1, &ourMesh.id_vertex);
-		ourMesh.id_vertex = 0;
-	}
-	if (ourMesh.id_normal != 0) {
-		glDeleteBuffers(1, &ourMesh.id_normal);
-		ourMesh.id_normal = 0;
-	}
-	if (ourMesh.id_index != 0) {
-		glDeleteBuffers(1, &ourMesh.id_index);
-		ourMesh.id_index = 0;
-	}
+	for (auto& mesh : meshes) {
+		if (mesh.id_vertex != 0) {
+			glDeleteBuffers(1, &mesh.id_vertex);
+			mesh.id_vertex = 0;
+		}
+		if (mesh.id_normal != 0) {
+			glDeleteBuffers(1, &mesh.id_normal);
+			mesh.id_normal = 0;
+		}
+		if (mesh.id_index != 0) {
+			glDeleteBuffers(1, &mesh.id_index);
+			mesh.id_index = 0;
+		}
 
-	// Liberar memoria de la CPU
-	delete[] ourMesh.vertex;  ourMesh.vertex = nullptr;
-	delete[] ourMesh.normal;  ourMesh.normal = nullptr;
-	delete[] ourMesh.index;   ourMesh.index  = nullptr;
-	ourMesh.num_vertex = 0;
-	ourMesh.num_index  = 0;
+		delete[] mesh.vertex; mesh.vertex = nullptr;
+		delete[] mesh.normal; mesh.normal = nullptr;
+		delete[] mesh.index;  mesh.index  = nullptr;
+		mesh.num_vertex = 0;
+		mesh.num_index = 0;
+	}
+	meshes.clear();
 
 	hasLoaded = false;
+	filePath.clear();
+	totalVertices = 0;
+	totalTriangles = 0;
+	meshCenter = glm::vec3(0.0f);
+	meshRadius = 1.0f;
 	aiDetachAllLogStreams();
 }
-

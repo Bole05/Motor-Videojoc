@@ -10,6 +10,8 @@ find_package(SDL3 CONFIG REQUIRED)
 find_package(glad CONFIG REQUIRED)
 find_package(DevIL REQUIRED)
 find_package(assimp CONFIG REQUIRED)
+find_package(imgui CONFIG REQUIRED)
+find_package(glm CONFIG REQUIRED)
 
 add_executable(Motor
     Main.cpp
@@ -23,11 +25,12 @@ add_executable(Motor
     Renderer.cpp
     Geometria.h
     Geometria.cpp
+    ModelObject.h
     Log.h
     Log.cpp
 )
 
-target_link_libraries(Motor PRIVATE fmt::fmt SDL3::SDL3 glad::glad DevIL::IL DevIL::ILU assimp::assimp)
+target_link_libraries(Motor PRIVATE fmt::fmt SDL3::SDL3 glad::glad DevIL::IL DevIL::ILU assimp::assimp imgui::imgui glm::glm)
 
 add_custom_command(
     TARGET Motor POST_BUILD

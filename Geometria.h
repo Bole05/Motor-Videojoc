@@ -1,10 +1,11 @@
 #pragma once
 #include <assimp/cimport.h>
-#include <Assimp/scene.h>
-#include <Assimp/postprocess.h>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
 #include <glad/glad.h>
 #include <glm/glm.hpp>
 #include <string>
+#include <vector>
 
 struct Mesh
 {
@@ -25,9 +26,13 @@ public:
 	Geometria();
 	~Geometria();
 
+	// Deshabilitar copia directa para evitar doble liberación de VBOs
+	Geometria(const Geometria&) = delete;
+	Geometria& operator=(const Geometria&) = delete;
+
 	static void DebugInit();
 
-	void Load(const std::string& file_path);
+	bool Load(const std::string& file_path);
 
 	// Dibuja la malla centrada y escalada a tamaño unitario.
 	void Draw() const;
@@ -35,10 +40,18 @@ public:
 	void CleanUp();
 
 	bool HasMesh() const { return hasLoaded; }
+	unsigned int GetTotalVertices() const { return totalVertices; }
+	unsigned int GetTotalTriangles() const { return totalTriangles; }
+	const std::string& GetFilePath() const { return filePath; }
+	float GetRadius() const { return meshRadius; }
+	glm::vec3 GetCenter() const { return meshCenter; }
 
 private:
-	Mesh ourMesh;
+	std::vector<Mesh> meshes;
 	bool hasLoaded = false;
+	std::string filePath;
+	unsigned int totalVertices = 0;
+	unsigned int totalTriangles = 0;
 
 	// Centro y radio del bounding box (calculados en Load)
 	glm::vec3 meshCenter = glm::vec3(0.0f);
