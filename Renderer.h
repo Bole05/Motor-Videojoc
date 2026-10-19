@@ -30,6 +30,10 @@ public:
 
     // --- Gestión de Escena (Modelos FBX / OBJ) ---
     bool AddModel(const std::string& path);
+    // Decide qué hacer con un fichero arrastrado: modelo (fbx/obj...) o imagen (png/dds/jpg...)
+    void HandleDroppedFile(const std::string& path);
+    // Carga una imagen y la asigna como textura al objeto seleccionado
+    bool ApplyTextureToSelected(const std::string& path);
     void DuplicateSelected();
     void DeleteSelected();
     void ClearScene();
@@ -75,6 +79,7 @@ private:
     bool showGrid = true;
     bool showDemoCube = false;
     bool globalWireframe = false;
+    bool globalShowTextures = true;   // Interruptor global de texturas
     glm::vec3 clearColor = glm::vec3(0.12f, 0.12f, 0.16f);
 
     // Buffer para diálogo de carga manual

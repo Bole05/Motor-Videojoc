@@ -90,7 +90,7 @@ void Engine::ProcessInput() {
         else if (event.type == SDL_EVENT_DROP_FILE) {
             std::string path = event.drop.data;
             LOG("Fichero arrastrado: %s", path.c_str());
-            renderer.AddModel(path);
+            renderer.HandleDroppedFile(path);
         }
         else if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
             if (!io.WantCaptureMouse) {

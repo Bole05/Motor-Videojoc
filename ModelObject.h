@@ -4,6 +4,7 @@
 #include <memory>
 #include <glm/glm.hpp>
 #include "Geometria.h"
+#include "Texture.h"
 
 struct ModelObject {
     // Dato
@@ -20,6 +21,10 @@ struct ModelObject {
     glm::vec3 color    = glm::vec3(0.75f, 0.75f, 0.75f);
     bool visible       = true;
     bool wireframe     = false;
+
+    // Texturas
+    bool showTexture   = true;                // Mostrar / ocultar la textura de este objeto
+    std::shared_ptr<Texture> overrideTexture; // Textura asignada a mano (arrastrando una imagen)
 
     // Animación de rotación opcional
     bool autoRotate    = false;

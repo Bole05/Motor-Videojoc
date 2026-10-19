@@ -4,6 +4,8 @@
 #include <fmt/core.h>
 #include <algorithm>
 #include <cmath>
+#include <cctype>
+#include <cstring>
 #include "Log.h"
 
 // ImGui :UI
@@ -127,6 +129,42 @@ bool Renderer::AddModel(const std::string& path) {
     selectedObjectIndex = static_cast<int>(objects.size()) - 1;
 
     LOG("Objeto '%s' anadido a la escena. Total objetos: %zu", obj->name.c_str(), objects.size());
+    return true;
+}
+
+static std::string ToLowerExt(const std::string& path) {
+    size_t dot = path.find_last_of('.');
+    if (dot == std::string::npos) return "";
+    std::string ext = path.substr(dot + 1);
+    for (auto& ch : ext) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    return ext;
+}
+
+void Renderer::HandleDroppedFile(const std::string& path) {
+    const std::string ext = ToLowerExt(path);
+    const bool isImage = (ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "dds" ||
+                          ext == "tga" || ext == "bmp" || ext == "tif" || ext == "tiff");
+    if (isImage) {
+        ApplyTextureToSelected(path);
+    } else {
+        AddModel(path);
+    }
+}
+
+bool Renderer::ApplyTextureToSelected(const std::string& path) {
+    auto sel = GetSelectedObject();
+    if (!sel) {
+        LOG("Selecciona un objeto antes de arrastrar una textura: %s", path.c_str());
+        return false;
+    }
+    auto tex = std::make_shared<Texture>();
+    if (!tex->Load(path)) {
+        LOG("No se pudo cargar la textura: %s", path.c_str());
+        return false;
+    }
+    sel->overrideTexture = tex;
+    sel->showTexture = true;
+    LOG("Textura '%s' asignada a '%s'", path.c_str(), sel->name.c_str());
     return true;
 }
 
@@ -315,7 +353,11 @@ void Renderer::RenderObjects(const glm::mat4& view) {
 
         // Configurar material
         bool isSelected = (static_cast<int>(i) == selectedObjectIndex);
-        glm::vec3 objCol = obj->color;
+        const bool useTex = globalShowTextures && obj->showTexture;
+        const bool texturedNow = useTex && obj->mesh->HasUVs() &&
+            (obj->mesh->HasAnyTexture() || (obj->overrideTexture && obj->overrideTexture->IsLoaded()));
+        // Con textura usamos blanco para no oscurecerla (GL_MODULATE multiplica textura * color)
+        glm::vec3 objCol = texturedNow ? glm::vec3(1.0f) : obj->color;
         if (isSelected) {
             // Ligeramente resaltado si está seleccionado
             objCol = glm::clamp(objCol * 1.15f, 0.0f, 1.0f);
@@ -336,7 +378,7 @@ void Renderer::RenderObjects(const glm::mat4& view) {
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         }
 
-        obj->mesh->Draw();
+        obj->mesh->Draw(useTex, obj->overrideTexture.get());
 
         glPopMatrix();
     }
@@ -430,6 +472,7 @@ void Renderer::DrawUI(Window& window) {
         if (ImGui::BeginMenu("Vista")) {
             ImGui::MenuItem("Mostrar Rejilla 3D (Grid)", nullptr, &showGrid);
             ImGui::MenuItem("Modo Malla Alambrica Global", nullptr, &globalWireframe);
+            ImGui::MenuItem("Mostrar Texturas", nullptr, &globalShowTextures);
             ImGui::MenuItem("Mostrar Cubo Demo", nullptr, &showDemoCube);
             ImGui::Separator();
             if (ImGui::MenuItem("Resetear Posicion Camara")) {
@@ -563,6 +606,57 @@ void Renderer::DrawUI(Window& window) {
             ImGui::ColorEdit3("Color Difuso", glm::value_ptr(sel->color));
             ImGui::Checkbox("Malla Alambrica (Wireframe)", &sel->wireframe);
             ImGui::Checkbox("Visible en Escena", &sel->visible);
+
+            ImGui::Spacing();
+            ImGui::Separator();
+
+            // Texturas del modelo
+            ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "TEXTURA");
+            ImGui::Checkbox("Mostrar Textura", &sel->showTexture);
+            if (!globalShowTextures) {
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "(desactivadas en Vista)");
+            }
+            if (!sel->mesh->HasUVs()) {
+                ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.3f, 1.0f), "El modelo no tiene coordenadas UV.");
+            }
+
+            // Textura asignada a mano (arrastrando una imagen)
+            const Texture* previewTex = nullptr;
+            if (sel->overrideTexture && sel->overrideTexture->IsLoaded()) {
+                previewTex = sel->overrideTexture.get();
+                ImGui::TextWrapped("Manual: %s", sel->overrideTexture->GetPath().c_str());
+                if (ImGui::Button("Quitar textura manual")) {
+                    sel->overrideTexture.reset();
+                    previewTex = nullptr;
+                }
+            }
+
+            // Texturas que vienen del FBX
+            const auto& mats = sel->mesh->GetMaterials();
+            int texCount = 0;
+            for (size_t m = 0; m < mats.size(); ++m) {
+                const auto& mt = mats[m];
+                if (mt.requestedPath.empty()) continue;
+                ++texCount;
+                if (mt.texture && mt.texture->IsLoaded()) {
+                    ImGui::TextWrapped("Mat %zu: %s (%dx%d)%s", m, mt.resolvedPath.c_str(),
+                        mt.texture->GetWidth(), mt.texture->GetHeight(), mt.embedded ? " [embebida]" : "");
+                    if (!previewTex) previewTex = mt.texture.get();
+                } else {
+                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Mat %zu: NO encontrada", m);
+                    ImGui::TextWrapped("  %s", mt.requestedPath.c_str());
+                }
+            }
+            if (texCount == 0 && !sel->overrideTexture) {
+                ImGui::TextDisabled("El FBX no referencia ninguna textura.");
+            }
+            ImGui::TextWrapped("Tip: con el objeto seleccionado, arrastra un .png/.dds/.jpg a la ventana para asignarle textura.");
+
+            if (previewTex) {
+                ImGui::Image((ImTextureID)(intptr_t)previewTex->GetID(), ImVec2(128, 128),
+                             ImVec2(0, 1), ImVec2(1, 0)); // invertir V para verla derecha
+            }
 
             ImGui::Spacing();
             ImGui::Separator();
