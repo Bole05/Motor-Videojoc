@@ -205,15 +205,42 @@ static std::string ToLowerExt(const std::string& path) {
     return ext;
 }
 
-void Renderer::HandleDroppedFile(const std::string& path) {
+const Renderer::TextureDropZone* Renderer::FindDropZone(const glm::vec2& p) const {
+    for (const auto& zone : textureDropZones) {
+        if (p.x >= zone.min.x && p.x <= zone.max.x && p.y >= zone.min.y && p.y <= zone.max.y) {
+            return &zone;
+        }
+    }
+    return nullptr;
+}
+
+void Renderer::HandleDroppedFile(const std::string& path, float x, float y) {
     const std::string ext = ToLowerExt(path);
     const bool isImage = (ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "dds" ||
                           ext == "tga" || ext == "bmp" || ext == "tif" || ext == "tiff");
-    if (isImage) {
-        ApplyTextureToSelected(path);
-    } else {
+    if (!isImage) {
+        isDraggingFile = false;
         AddModel(path);
+        return;
     }
+
+    // ¿Se ha soltado encima de la miniatura de una textura del Inspector?
+    const TextureDropZone* zone = FindDropZone(glm::vec2(x, y));
+    if (!zone && isDraggingFile) zone = FindDropZone(dragPos); // última posición conocida del arrastre
+    isDraggingFile = false;
+
+    if (zone && zone->geom) {
+        auto tex = std::make_shared<Texture>();
+        if (!tex->Load(path)) {
+            LOG("No se pudo cargar la textura: %s", path.c_str());
+            return;
+        }
+        zone->geom->ReplaceMaterialTexture(zone->material, tex);
+        return;
+    }
+
+    // Si no, se asigna como textura manual al objeto seleccionado (comportamiento de antes)
+    ApplyTextureToSelected(path);
 }
 
 bool Renderer::ApplyTextureToSelected(const std::string& path) {
@@ -532,6 +559,9 @@ void Renderer::DrawHierarchyNode(const std::shared_ptr<ModelObject>& obj) {
 // ─────────────────────────────────────────────
 
 void Renderer::DrawUI(Window& window) {
+    // Las zonas para soltar texturas se vuelven a calcular en este frame
+    textureDropZones.clear();
+
     // 1. Barra de Menú Principal Superior
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("Archivo")) {
@@ -709,46 +739,80 @@ void Renderer::DrawUI(Window& window) {
                 ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.3f, 1.0f), "El modelo no tiene coordenadas UV.");
             }
 
-            // Textura asignada a mano (arrastrando una imagen)
-            const Texture* previewTex = nullptr;
+            // Textura asignada a mano (arrastrando una imagen fuera de las miniaturas)
             if (sel->overrideTexture && sel->overrideTexture->IsLoaded()) {
-                previewTex = sel->overrideTexture.get();
                 ImGui::TextWrapped("Manual: %s", sel->overrideTexture->GetPath().c_str());
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "(tapa las texturas de los materiales)");
                 if (ImGui::Button("Quitar textura manual")) {
                     sel->overrideTexture.reset();
-                    previewTex = nullptr;
                 }
             }
 
-            // Texturas que vienen del FBX
-            // Si el nodo tiene mallas propias, sólo se muestran los materiales que usan
+            // Texturas de los materiales del FBX.
+            // Cada miniatura es una zona donde se puede soltar una imagen para SUSTITUIRLA.
+            // Si el nodo tiene mallas propias, sólo se muestran los materiales que usan.
             const auto& mats = sel->mesh->GetMaterials();
             std::set<unsigned int> usedMats;
             for (unsigned int idx : sel->meshIndices) usedMats.insert(sel->mesh->GetMeshMaterial(idx));
-            int texCount = 0;
+
+            const float thumbSize = 96.0f;
+            int shownMats = 0;
             for (size_t m = 0; m < mats.size(); ++m) {
                 if (!usedMats.empty() && usedMats.count((unsigned int)m) == 0) continue;
                 const auto& mt = mats[m];
-                if (mt.requestedPath.empty()) continue;
-                ++texCount;
-                if (mt.texture && mt.texture->IsLoaded()) {
-                    ImGui::TextWrapped("Mat %zu: %s (%dx%d)%s", m, mt.resolvedPath.c_str(),
-                        mt.texture->GetWidth(), mt.texture->GetHeight(), mt.embedded ? " [embebida]" : "");
-                    if (!previewTex) previewTex = mt.texture.get();
-                } else {
-                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Mat %zu: NO encontrada", m);
-                    ImGui::TextWrapped("  %s", mt.requestedPath.c_str());
-                }
-            }
-            if (texCount == 0 && !sel->overrideTexture) {
-                ImGui::TextDisabled("El FBX no referencia ninguna textura.");
-            }
-            ImGui::TextWrapped("Tip: con el objeto seleccionado, arrastra un .png/.dds/.jpg a la ventana para asignarle textura.");
+                ++shownMats;
+                ImGui::PushID((int)m);
 
-            if (previewTex) {
-                ImGui::Image((ImTextureID)(intptr_t)previewTex->GetID(), ImVec2(128, 128),
-                             ImVec2(0, 1), ImVec2(1, 0)); // invertir V para verla derecha
+                // Miniatura (o recuadro vacío si el material no tiene textura)
+                if (mt.texture && mt.texture->IsLoaded()) {
+                    ImGui::Image((ImTextureID)(intptr_t)mt.texture->GetID(), ImVec2(thumbSize, thumbSize),
+                                 ImVec2(0, 1), ImVec2(1, 0)); // invertir V para verla derecha
+                } else {
+                    ImGui::Button("Sin textura\n\nSuelta aqui\nuna imagen", ImVec2(thumbSize, thumbSize));
+                }
+
+                // Guardar el rectángulo de la miniatura como zona de soltado
+                ImVec2 rmin = ImGui::GetItemRectMin();
+                ImVec2 rmax = ImGui::GetItemRectMax();
+                textureDropZones.push_back({ glm::vec2(rmin.x, rmin.y), glm::vec2(rmax.x, rmax.y),
+                                             sel->mesh, (unsigned int)m });
+
+                // Resaltar la miniatura mientras se arrastra un fichero por encima
+                const bool hovered = isDraggingFile &&
+                    dragPos.x >= rmin.x && dragPos.x <= rmax.x && dragPos.y >= rmin.y && dragPos.y <= rmax.y;
+                ImGui::GetWindowDrawList()->AddRect(rmin, rmax,
+                    hovered ? IM_COL32(80, 220, 120, 255) : IM_COL32(110, 110, 130, 255),
+                    4.0f, 0, hovered ? 3.0f : 1.0f);
+
+                // Información del material a la derecha de la miniatura
+                ImGui::SameLine();
+                ImGui::BeginGroup();
+                ImGui::Text("Material %zu", m);
+                if (mt.texture && mt.texture->IsLoaded()) {
+                    ImGui::TextWrapped("%s", mt.resolvedPath.c_str());
+                    ImGui::Text("%dx%d%s", mt.texture->GetWidth(), mt.texture->GetHeight(),
+                                mt.embedded ? " [embebida]" : "");
+                } else if (!mt.requestedPath.empty()) {
+                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "NO encontrada:");
+                    ImGui::TextWrapped("%s", mt.requestedPath.c_str());
+                } else {
+                    ImGui::TextDisabled("El FBX no le asigna textura");
+                }
+                if (mt.replaced) {
+                    ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.5f, 1.0f), "Sustituida");
+                    if (ImGui::Button("Restaurar original")) {
+                        sel->mesh->RestoreMaterialTexture((unsigned int)m);
+                    }
+                }
+                ImGui::EndGroup();
+
+                ImGui::PopID();
             }
+            if (shownMats == 0) {
+                ImGui::TextDisabled("Este nodo no tiene materiales.");
+            }
+            ImGui::TextWrapped("Tip: arrastra un .png/.dds/.jpg ENCIMA de una miniatura para sustituir esa textura. "
+                               "Si lo sueltas en otro sitio, se aplica como textura manual al objeto seleccionado.");
 
             ImGui::Spacing();
             ImGui::Separator();

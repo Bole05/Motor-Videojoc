@@ -87,10 +87,21 @@ void Engine::ProcessInput() {
             window.SetSize(w, h);
             glViewport(0, 0, w, h);
         }
+        else if (event.type == SDL_EVENT_DROP_BEGIN) {
+            renderer.OnFileDragBegin();
+        }
+        else if (event.type == SDL_EVENT_DROP_POSITION) {
+            // Posición del ratón mientras se arrastra un fichero sobre la ventana
+            renderer.OnFileDragMove(event.drop.x, event.drop.y);
+        }
+        else if (event.type == SDL_EVENT_DROP_COMPLETE) {
+            renderer.OnFileDragEnd();
+        }
         else if (event.type == SDL_EVENT_DROP_FILE) {
             std::string path = event.drop.data;
-            LOG("Fichero arrastrado: %s", path.c_str());
-            renderer.HandleDroppedFile(path);
+            LOG("Fichero arrastrado: %s (en %.0f, %.0f)", path.c_str(), event.drop.x, event.drop.y);
+            // Se pasa también el punto donde se ha soltado (para sustituir texturas del Inspector)
+            renderer.HandleDroppedFile(path, event.drop.x, event.drop.y);
         }
         else if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
             if (!io.WantCaptureMouse) {

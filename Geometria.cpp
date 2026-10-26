@@ -8,6 +8,9 @@
 #include <assimp/config.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <glm/gtc/quaternion.hpp>
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/matrix_decompose.hpp>
 
 namespace fs = std::filesystem;
 
@@ -62,10 +65,33 @@ static glm::mat4 ToGlm(const aiMatrix4x4& m)
 	return glm::transpose(glm::make_mat4(&m.a1));
 }
 
+// Los FBX exportados desde Blender (como BakerHouse.fbx) traen en cada nodo una
+// rotación de -90º en X y escala 100 para pasar de Z-arriba a Y-arriba, pero
+// los vértices YA vienen convertidos a Y-arriba. Si aplicamos esa rotación el
+// modelo sale tumbado, así que la quitamos y nos quedamos sólo con la posición.
+static glm::mat4 RemoveBlenderAxisCorrection(const glm::mat4& local, const char* nodeName)
+{
+	glm::vec3 scale, translation, skew;
+	glm::vec4 perspective;
+	glm::quat rotation;
+	if (!glm::decompose(local, scale, rotation, translation, skew, perspective)) return local;
+
+	const glm::quat blenderRot = glm::angleAxis(glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+	const bool isBlenderRot = std::abs(glm::dot(rotation, blenderRot)) > 0.9999f;
+	const bool isScale100 = std::abs(scale.x - 100.0f) < 0.5f &&
+	                        std::abs(scale.y - 100.0f) < 0.5f &&
+	                        std::abs(scale.z - 100.0f) < 0.5f;
+	if (!isBlenderRot || !isScale100) return local;
+
+	LOG("Nodo '%s': corregida rotacion -90 X / escala 100 de exportacion de Blender", nodeName);
+	return glm::translate(glm::mat4(1.0f), translation);
+}
+
 void Geometria::BuildNode(const aiNode* node, const glm::mat4& pendingLocal, const glm::mat4& parentGlobal,
                           const std::vector<int>& meshRemap, ModelNode& out, glm::vec3& minV, glm::vec3& maxV)
 {
-	const glm::mat4 local = pendingLocal * ToGlm(node->mTransformation);
+	const glm::mat4 local = RemoveBlenderAxisCorrection(pendingLocal * ToGlm(node->mTransformation),
+	                                                    node->mName.C_Str());
 	const glm::mat4 global = parentGlobal * local;
 
 	out.name = node->mName.length > 0 ? node->mName.C_Str() : "Nodo";
@@ -295,6 +321,40 @@ bool Geometria::Load(const std::string& file_path) {
 
 	aiReleaseImport(scene);
 	return hasLoaded;
+}
+
+bool Geometria::ReplaceMaterialTexture(unsigned int materialIndex, const std::shared_ptr<Texture>& newTexture) {
+	if (materialIndex >= materials.size() || !newTexture || !newTexture->IsLoaded()) return false;
+
+	MaterialTexture& mt = materials[materialIndex];
+	// Guardar la original sólo la primera vez (si se sustituye varias veces, se conserva la del FBX)
+	if (!mt.replaced) {
+		mt.originalTexture  = mt.texture;
+		mt.originalPath     = mt.resolvedPath;
+		mt.originalEmbedded = mt.embedded;
+		mt.replaced = true;
+	}
+	mt.texture = newTexture;
+	mt.resolvedPath = newTexture->GetPath();
+	mt.embedded = false;
+
+	LOG("Material %u: textura sustituida por '%s'", materialIndex, mt.resolvedPath.c_str());
+	return true;
+}
+
+void Geometria::RestoreMaterialTexture(unsigned int materialIndex) {
+	if (materialIndex >= materials.size()) return;
+
+	MaterialTexture& mt = materials[materialIndex];
+	if (!mt.replaced) return;
+	mt.texture      = mt.originalTexture;
+	mt.resolvedPath = mt.originalPath;
+	mt.embedded     = mt.originalEmbedded;
+	mt.originalTexture.reset();
+	mt.originalPath.clear();
+	mt.replaced = false;
+
+	LOG("Material %u: textura original restaurada", materialIndex);
 }
 
 bool Geometria::HasAnyTexture() const {

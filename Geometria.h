@@ -45,6 +45,13 @@ struct MaterialTexture
 	std::string resolvedPath;           // Ruta real donde se encontró (vacía si no se encontró)
 	bool embedded = false;              // true si venía embebida dentro del FBX
 	std::shared_ptr<Texture> texture;   // nullptr si no tiene textura o no se pudo cargar
+
+	// Si el usuario ha sustituido la textura arrastrando una imagen, se guarda
+	// la original para poder restaurarla
+	bool replaced = false;
+	std::shared_ptr<Texture> originalTexture;
+	std::string originalPath;
+	bool originalEmbedded = false;
 };
 
 class Geometria {
@@ -83,6 +90,11 @@ public:
 	bool HasUVs() const { return hasUVs; }
 	bool HasAnyTexture() const;
 	const std::vector<MaterialTexture>& GetMaterials() const { return materials; }
+
+	// Sustituye la textura de un material por otra imagen (afecta a todas las mallas que lo usan)
+	bool ReplaceMaterialTexture(unsigned int materialIndex, const std::shared_ptr<Texture>& newTexture);
+	// Vuelve a poner la textura original del FBX
+	void RestoreMaterialTexture(unsigned int materialIndex);
 
 	// Jerarquía de nodos del FBX
 	const ModelNode& GetRootNode() const { return rootNode; }

@@ -30,8 +30,15 @@ public:
 
     // --- Gestión de Escena (Modelos FBX / OBJ) ---
     bool AddModel(const std::string& path);
-    // Decide qué hacer con un fichero arrastrado: modelo (fbx/obj...) o imagen (png/dds/jpg...)
-    void HandleDroppedFile(const std::string& path);
+    // Decide qué hacer con un fichero arrastrado: modelo (fbx/obj...) o imagen (png/dds/jpg...).
+    // (x, y) es el punto de la ventana donde se ha soltado: si cae encima de la miniatura
+    // de una textura en el Inspector, esa textura se sustituye por la nueva imagen.
+    void HandleDroppedFile(const std::string& path, float x = -1.0f, float y = -1.0f);
+
+    // Seguimiento del arrastre de ficheros (para resaltar la zona donde se va a soltar)
+    void OnFileDragBegin() { isDraggingFile = true; }
+    void OnFileDragMove(float x, float y) { isDraggingFile = true; dragPos = glm::vec2(x, y); }
+    void OnFileDragEnd() { isDraggingFile = false; }
     // Carga una imagen y la asigna como textura al objeto seleccionado
     bool ApplyTextureToSelected(const std::string& path);
     void DuplicateSelected();
@@ -84,6 +91,18 @@ private:
     bool globalWireframe = false;
     bool globalShowTextures = true;   // Interruptor global de texturas
     glm::vec3 clearColor = glm::vec3(0.12f, 0.12f, 0.16f);
+
+    // Zonas del Inspector donde se puede soltar una imagen para sustituir la textura
+    // de un material (se rellenan cada frame al dibujar el Inspector)
+    struct TextureDropZone {
+        glm::vec2 min, max;
+        std::shared_ptr<Geometria> geom;
+        unsigned int material = 0;
+    };
+    std::vector<TextureDropZone> textureDropZones;
+    const TextureDropZone* FindDropZone(const glm::vec2& p) const;
+    bool isDraggingFile = false;
+    glm::vec2 dragPos = glm::vec2(-1.0f);
 
     // Buffer para diálogo de carga manual
     char loadPathBuffer[512] = "";
