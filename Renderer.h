@@ -16,7 +16,7 @@ public:
     Renderer();
     ~Renderer();
 
-    // Inicializa OpenGL, luces, textura demo e ImGui
+    // Inicializa OpenGL, luces, ImGui y carga el modelo inicial (BakerHouse)
     bool Init(Window& window);
 
     // Actualiza animaciones (giro continuo de modelos, etc.)
@@ -44,29 +44,33 @@ public:
     void ResetCamera();
 
     // --- Getters / Setters ---
-    int GetSelectedIndex() const { return selectedObjectIndex; }
-    void SetSelectedIndex(int index) { selectedObjectIndex = index; }
-    std::shared_ptr<ModelObject> GetSelectedObject();
+    // El objeto seleccionado puede ser un modelo entero o un nodo hijo (p.ej. la chimenea)
+    std::shared_ptr<ModelObject> GetSelectedObject() { return selectedObject; }
+    void SetSelectedObject(const std::shared_ptr<ModelObject>& obj) { selectedObject = obj; }
     size_t GetObjectCount() const { return objects.size(); }
 
     bool IsMouseDragging() const { return isMouseDragging; }
     void SetMouseDragging(bool dragging) { isMouseDragging = dragging; }
 
 private:
-    void InitCube();
-    void RenderCube();
     void RenderGrid();
     void RenderObjects(const glm::mat4& view);
+    // Dibuja un nodo y, recursivamente, todos sus hijos
+    void RenderNode(const std::shared_ptr<ModelObject>& obj, const glm::mat4& parentWorld, const glm::mat4& view,
+                    const Texture* inheritedTexture, bool inheritedShowTexture, bool inheritedWireframe,
+                    bool inheritedSelected);
+    // Pinta un nodo en el panel de jerarquía (TreeNode de ImGui) y sus hijos
+    void DrawHierarchyNode(const std::shared_ptr<ModelObject>& obj);
     void DrawUI(Window& window);
 
-    // Recursos del cubo demo
-    Texture texture;
-    GLuint buffs[3] = {0, 0, 0};
-    float angle = 0.0f;
+    // Acciones pedidas desde el menú contextual de la jerarquía.
+    // Se ejecutan al terminar de dibujar el árbol para no modificarlo mientras se recorre.
+    enum class PendingAction { NONE, DUPLICATE, DELETE_OBJ };
+    PendingAction pendingAction = PendingAction::NONE;
 
-    // Escena: lista de objetos y selección
+    // Escena: lista de objetos raíz (cada uno puede tener hijos) y selección
     std::vector<std::shared_ptr<ModelObject>> objects;
-    int selectedObjectIndex = -1;
+    std::shared_ptr<ModelObject> selectedObject;
 
     // Cámara orbital estilo aplicación de modelado 3D
     float cameraDistance = 3.5f;
@@ -77,7 +81,6 @@ private:
 
     // Opciones visuales
     bool showGrid = true;
-    bool showDemoCube = false;
     bool globalWireframe = false;
     bool globalShowTextures = true;   // Interruptor global de texturas
     glm::vec3 clearColor = glm::vec3(0.12f, 0.12f, 0.16f);

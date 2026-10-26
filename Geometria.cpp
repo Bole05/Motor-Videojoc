@@ -5,6 +5,9 @@
 #include <algorithm>
 #include <filesystem>
 #include <map>
+#include <assimp/config.h>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 namespace fs = std::filesystem;
 
@@ -51,6 +54,63 @@ static std::string ResolveTexturePath(const std::string& texPath, const std::str
 		}
 	}
 	return "";
+}
+
+// Assimp guarda las matrices por filas y glm por columnas -> hay que trasponer
+static glm::mat4 ToGlm(const aiMatrix4x4& m)
+{
+	return glm::transpose(glm::make_mat4(&m.a1));
+}
+
+void Geometria::BuildNode(const aiNode* node, const glm::mat4& pendingLocal, const glm::mat4& parentGlobal,
+                          const std::vector<int>& meshRemap, ModelNode& out, glm::vec3& minV, glm::vec3& maxV)
+{
+	const glm::mat4 local = pendingLocal * ToGlm(node->mTransformation);
+	const glm::mat4 global = parentGlobal * local;
+
+	out.name = node->mName.length > 0 ? node->mName.C_Str() : "Nodo";
+	out.transform = local;
+
+	// Submallas de este nodo + bounding box en espacio del modelo
+	for (unsigned int i = 0; i < node->mNumMeshes; ++i) {
+		const unsigned int aiIdx = node->mMeshes[i];
+		if (aiIdx >= meshRemap.size() || meshRemap[aiIdx] < 0) continue;
+		const unsigned int idx = (unsigned int)meshRemap[aiIdx];
+		out.meshes.push_back(idx);
+
+		const Mesh& mesh = meshes[idx];
+		for (unsigned int v = 0; v < mesh.num_vertex; ++v) {
+			glm::vec4 p = global * glm::vec4(mesh.vertex[v * 3 + 0], mesh.vertex[v * 3 + 1], mesh.vertex[v * 3 + 2], 1.0f);
+			minV = glm::min(minV, glm::vec3(p));
+			maxV = glm::max(maxV, glm::vec3(p));
+		}
+	}
+
+	for (unsigned int c = 0; c < node->mNumChildren; ++c) {
+		const aiNode* child = node->mChildren[c];
+		std::string childName = child->mName.C_Str();
+
+		// Nodos auxiliares que crea Assimp para los pivotes del FBX
+		// ("Chimney$AssimpFbx$_Rotation", ...): no se muestran, su transform
+		// se acumula en el primer nodo real que cuelga de ellos.
+		if (childName.find("$AssimpFbx$") != std::string::npos && child->mNumMeshes == 0) {
+			glm::mat4 helper = ToGlm(child->mTransformation);
+			const aiNode* cur = child;
+			while (cur->mNumChildren == 1 && cur->mNumMeshes == 0 &&
+			       std::string(cur->mChildren[0]->mName.C_Str()).find("$AssimpFbx$") != std::string::npos) {
+				cur = cur->mChildren[0];
+				helper = helper * ToGlm(cur->mTransformation);
+			}
+			for (unsigned int g = 0; g < cur->mNumChildren; ++g) {
+				out.children.emplace_back();
+				BuildNode(cur->mChildren[g], helper, global, meshRemap, out.children.back(), minV, maxV);
+			}
+			continue;
+		}
+
+		out.children.emplace_back();
+		BuildNode(child, glm::mat4(1.0f), global, meshRemap, out.children.back(), minV, maxV);
+	}
 }
 
 void Geometria::LoadMaterials(const aiScene* scene, const std::string& modelPath)
@@ -123,7 +183,13 @@ bool Geometria::Load(const std::string& file_path) {
 	// Limpiar mallas anteriores antes de cargar una nueva
 	CleanUp();
 
-	const aiScene* scene = aiImportFile(file_path.c_str(), aiProcessPreset_TargetRealtime_MaxQuality);
+	// Desactivamos los nodos de pivote extra del FBX para que la jerarquía
+	// salga limpia (Baker_house, Chimney... en vez de nodos $AssimpFbx$)
+	aiPropertyStore* props = aiCreatePropertyStore();
+	aiSetImportPropertyInteger(props, AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, 0);
+	const aiScene* scene = aiImportFileExWithProperties(file_path.c_str(),
+		aiProcessPreset_TargetRealtime_MaxQuality, nullptr, props);
+	aiReleasePropertyStore(props);
 	if (!scene || !scene->HasMeshes()) {
 		LOG("Error loading scene %s: %s", file_path.c_str(), aiGetErrorString());
 		return false;
@@ -136,10 +202,13 @@ bool Geometria::Load(const std::string& file_path) {
 	totalTriangles = 0;
 
 	meshes.reserve(scene->mNumMeshes);
+	// Índice de aiMesh -> índice en 'meshes' (-1 si la malla se descarta)
+	std::vector<int> meshRemap(scene->mNumMeshes, -1);
 
 	for (unsigned int m = 0; m < scene->mNumMeshes; ++m) {
 		const aiMesh* ai_mesh = scene->mMeshes[m];
 		if (!ai_mesh || ai_mesh->mNumVertices == 0) continue;
+		meshRemap[m] = (int)meshes.size();
 
 		Mesh mesh;
 		mesh.num_vertex = ai_mesh->mNumVertices;
@@ -149,15 +218,6 @@ bool Geometria::Load(const std::string& file_path) {
 		// Vértices
 		mesh.vertex = new float[mesh.num_vertex * 3];
 		memcpy(mesh.vertex, ai_mesh->mVertices, sizeof(float) * mesh.num_vertex * 3);
-
-		// Actualizar Bounding Box global
-		for (unsigned int i = 0; i < mesh.num_vertex; ++i) {
-			float x = mesh.vertex[i * 3 + 0];
-			float y = mesh.vertex[i * 3 + 1];
-			float z = mesh.vertex[i * 3 + 2];
-			minV.x = std::min(minV.x, x);  minV.y = std::min(minV.y, y);  minV.z = std::min(minV.z, z);
-			maxV.x = std::max(maxV.x, x);  maxV.y = std::max(maxV.y, y);  maxV.z = std::max(maxV.z, z);
-		}
 
 		// Subir vértices a GPU
 		glGenBuffers(1, &mesh.id_vertex);
@@ -215,7 +275,13 @@ bool Geometria::Load(const std::string& file_path) {
 	// Materiales y texturas difusas
 	LoadMaterials(scene, file_path);
 
-	if (!meshes.empty() && totalVertices > 0) {
+	// Jerarquía de nodos (y bounding box con las transformaciones de cada nodo)
+	rootNode = ModelNode();
+	if (scene->mRootNode) {
+		BuildNode(scene->mRootNode, glm::mat4(1.0f), glm::mat4(1.0f), meshRemap, rootNode, minV, maxV);
+	}
+
+	if (!meshes.empty() && totalVertices > 0 && minV.x <= maxV.x) {
 		meshCenter = (minV + maxV) * 0.5f;
 		meshRadius = glm::length(maxV - meshCenter);
 		if (meshRadius < 0.0001f) meshRadius = 1.0f;
@@ -224,6 +290,7 @@ bool Geometria::Load(const std::string& file_path) {
 		LOG("Modelo cargado: %s (%zu submallas, %u vertices, %u triangulos, UVs: %s)",
 			file_path.c_str(), meshes.size(), totalVertices, totalTriangles, hasUVs ? "si" : "no");
 		LOG("AABB center=(%.2f, %.2f, %.2f) radius=%.2f", meshCenter.x, meshCenter.y, meshCenter.z, meshRadius);
+		LOG("Jerarquia: nodo raiz '%s' con %zu hijos", rootNode.name.c_str(), rootNode.children.size());
 	}
 
 	aiReleaseImport(scene);
@@ -237,17 +304,21 @@ bool Geometria::HasAnyTexture() const {
 	return false;
 }
 
-void Geometria::Draw(bool useTextures, const Texture* overrideTexture) const {
-	if (!hasLoaded || meshes.empty()) return;
-
+glm::mat4 Geometria::GetNormalizeMatrix() const {
 	// Auto-centrar y normalizar a tamaño estándar
-	float s = 1.0f / meshRadius;
-	glScalef(s, s, s);
-	glTranslatef(-meshCenter.x, -meshCenter.y, -meshCenter.z);
+	const float s = 1.0f / meshRadius;
+	glm::mat4 m = glm::scale(glm::mat4(1.0f), glm::vec3(s));
+	return glm::translate(m, -meshCenter);
+}
+
+void Geometria::Draw(const std::vector<unsigned int>& meshIndices, bool useTextures, const Texture* overrideTexture) const {
+	if (!hasLoaded || meshes.empty() || meshIndices.empty()) return;
 
 	glEnableClientState(GL_VERTEX_ARRAY);
 
-	for (const auto& mesh : meshes) {
+	for (unsigned int idx : meshIndices) {
+		if (idx >= meshes.size()) continue;
+		const Mesh& mesh = meshes[idx];
 		if (mesh.id_vertex == 0 || mesh.id_index == 0) continue;
 
 		glBindBuffer(GL_ARRAY_BUFFER, mesh.id_vertex);
@@ -328,6 +399,7 @@ void Geometria::CleanUp() {
 		mesh.num_index = 0;
 	}
 	meshes.clear();
+	rootNode = ModelNode();
 	materials.clear(); // libera las texturas (shared_ptr) de este modelo
 
 	hasLoaded = false;

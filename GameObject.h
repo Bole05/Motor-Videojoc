@@ -19,7 +19,7 @@ public:
     template <typename T>
     T* GetComponent() {
         for (Component* comp : components) {
-            T* target = dynamic_cast<T*>(comp);
+            T* target = static_cast<T*>(comp);
             if (target != nullptr) {
                 return target;
             }

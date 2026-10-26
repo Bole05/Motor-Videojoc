@@ -28,6 +28,16 @@ struct Mesh
 	unsigned int materialIndex = 0; // Índice del material de Assimp que usa esta submalla
 };
 
+// Nodo de la jerarquía del modelo (copia de los aiNode del FBX).
+// Ej. BakerHouse.fbx -> RootNode -> { Baker_house, Chimney }
+struct ModelNode
+{
+	std::string name;
+	glm::mat4 transform = glm::mat4(1.0f);   // Transform local respecto al padre (del FBX)
+	std::vector<unsigned int> meshes;        // Índices de las submallas que tiene este nodo
+	std::vector<ModelNode> children;         // Nodos hijos
+};
+
 // Información de la textura difusa de un material del modelo
 struct MaterialTexture
 {
@@ -50,11 +60,16 @@ public:
 
 	bool Load(const std::string& file_path);
 
-	// Dibuja la malla centrada y escalada a tamaño unitario.
+	// Dibuja las submallas indicadas (las de un nodo de la jerarquía).
+	// La matriz del nodo ya debe estar cargada en OpenGL antes de llamar.
 	//  useTextures     : si es false se dibuja sólo con el color del material
 	//  overrideTexture : si no es nullptr, se usa esta textura en todas las submallas
 	//                    en lugar de las del FBX
-	void Draw(bool useTextures = true, const Texture* overrideTexture = nullptr) const;
+	void Draw(const std::vector<unsigned int>& meshIndices, bool useTextures = true,
+	          const Texture* overrideTexture = nullptr) const;
+
+	// Matriz que centra el modelo completo y lo escala a tamaño unitario
+	glm::mat4 GetNormalizeMatrix() const;
 
 	void CleanUp();
 
@@ -69,11 +84,24 @@ public:
 	bool HasAnyTexture() const;
 	const std::vector<MaterialTexture>& GetMaterials() const { return materials; }
 
+	// Jerarquía de nodos del FBX
+	const ModelNode& GetRootNode() const { return rootNode; }
+
+	// Información por submalla (para el inspector)
+	unsigned int GetMeshCount() const { return (unsigned int)meshes.size(); }
+	unsigned int GetMeshVertices(unsigned int i) const { return i < meshes.size() ? meshes[i].num_vertex : 0; }
+	unsigned int GetMeshTriangles(unsigned int i) const { return i < meshes.size() ? meshes[i].num_index / 3 : 0; }
+	unsigned int GetMeshMaterial(unsigned int i) const { return i < meshes.size() ? meshes[i].materialIndex : 0; }
+
 private:
 	void LoadMaterials(const aiScene* scene, const std::string& modelPath);
+	// Copia recursivamente un aiNode (y sus hijos) a la jerarquía ModelNode
+	void BuildNode(const aiNode* node, const glm::mat4& pendingLocal, const glm::mat4& parentGlobal,
+	               const std::vector<int>& meshRemap, ModelNode& out, glm::vec3& minV, glm::vec3& maxV);
 
 	std::vector<Mesh> meshes;
 	std::vector<MaterialTexture> materials;
+	ModelNode rootNode;
 	bool hasLoaded = false;
 	bool hasUVs = false;
 	std::string filePath;

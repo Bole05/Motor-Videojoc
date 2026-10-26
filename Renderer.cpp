@@ -1,6 +1,11 @@
 #include "Renderer.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/matrix_decompose.hpp>
+#include <glm/gtx/euler_angles.hpp>
+#include <functional>
+#include <set>
 #include <fmt/core.h>
 #include <algorithm>
 #include <cmath>
@@ -17,16 +22,14 @@
 //  Constructor / Destructor
 // ─────────────────────────────────────────────
 
-Renderer::Renderer() : angle(0.0f) {
-    buffs[0] = buffs[1] = buffs[2] = 0;
-}
+Renderer::Renderer() {}
 
 Renderer::~Renderer() {
     CleanUp();
 }
 
 // ─────────────────────────────────────────────
-//  Init: OpenGL + ImGui + Luz + Cubo Demo
+//  Init: OpenGL + ImGui + Luz + Modelo inicial (BakerHouse)
 // ─────────────────────────────────────────────
 
 bool Renderer::Init(Window& window) {
@@ -40,15 +43,7 @@ bool Renderer::Init(Window& window) {
     glEnable(GL_LIGHT0);
     glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, GL_TRUE);
 
-    // 2. Cargar textura del cubo de prueba
-    if (!texture.Load("assets/Lenna.dds")) {
-        texture.Load("assets/Lenna.png");
-    }
-
-    // 3. Crear geometría del cubo demo
-    InitCube();
-
-    // 4. Inicializar Dear ImGui
+    // 2. Inicializar Dear ImGui
     //Compruba la verción de ImGui si se encaja 
     IMGUI_CHECKVERSION();
     //Crear contexto de la sistema ImGui, asi que empieza guardar o podemos decir entender las acción que hace en panel de UI
@@ -77,6 +72,20 @@ bool Renderer::Init(Window& window) {
     }
 
     LOG("Renderer e ImGui inicializados correctamente.");
+
+    // 3. Cargar la casa (BakerHouse.fbx) automáticamente al arrancar el motor.
+    //    Probamos primero la ruta relativa al directorio de trabajo y, si no existe,
+    //    la carpeta assets que hay junto al ejecutable.
+    bool houseLoaded = AddModel("assets/BakerHouse.fbx");
+    if (!houseLoaded) {
+        if (const char* basePath = SDL_GetBasePath()) {
+            houseLoaded = AddModel(std::string(basePath) + "assets/BakerHouse.fbx");
+        }
+    }
+    if (!houseLoaded) {
+        LOG("No se ha podido cargar assets/BakerHouse.fbx al iniciar.");
+    }
+
     return true;
 }
 
@@ -85,21 +94,68 @@ bool Renderer::Init(Window& window) {
 // ─────────────────────────────────────────────
 
 void Renderer::Update(float deltaTime) {
-    angle += 0.01f;
-
-    // Actualizar rotación continua de objetos configurados
-    for (auto& obj : objects) {
-        if (obj && obj->autoRotate) {
-            obj->rotation.y += obj->autoRotateSpeed * deltaTime;
-            if (obj->rotation.y >= 360.0f) obj->rotation.y -= 360.0f;
-            if (obj->rotation.y < 0.0f)    obj->rotation.y += 360.0f;
-        }
-    }
+    // Actualizar rotación continua de objetos configurados (también los hijos)
+    std::function<void(const std::shared_ptr<ModelObject>&)> updateNode =
+        [&](const std::shared_ptr<ModelObject>& obj) {
+            if (!obj) return;
+            if (obj->autoRotate) {
+                obj->rotation.y += obj->autoRotateSpeed * deltaTime;
+                if (obj->rotation.y >= 360.0f) obj->rotation.y -= 360.0f;
+                if (obj->rotation.y < 0.0f)    obj->rotation.y += 360.0f;
+            }
+            for (auto& child : obj->children) updateNode(child);
+        };
+    for (auto& obj : objects) updateNode(obj);
 }
 
 // ─────────────────────────────────────────────
 //  Gestión de Escena
 // ─────────────────────────────────────────────
+
+// Pasa la matriz local de un nodo del FBX a Posición / Rotación (grados, orden YXZ) / Escala,
+// para que se pueda editar desde el inspector igual que cualquier objeto.
+static void DecomposeToTransform(const glm::mat4& m, ModelObject& obj) {
+    glm::vec3 scale, translation, skew;
+    glm::vec4 perspective;
+    glm::quat orientation;
+    if (!glm::decompose(m, scale, orientation, translation, skew, perspective)) {
+        obj.baseTransform = m; // No se pudo descomponer: se usa la matriz tal cual
+        return;
+    }
+    float yaw = 0.0f, pitch = 0.0f, roll = 0.0f;
+    glm::extractEulerAngleYXZ(glm::mat4_cast(orientation), yaw, pitch, roll);
+    obj.position = translation;
+    obj.rotation = glm::degrees(glm::vec3(pitch, yaw, roll)); // (X, Y, Z)
+    obj.scale    = scale;
+}
+
+// Crea un ModelObject para un nodo del FBX y, recursivamente, para todos sus hijos
+static std::shared_ptr<ModelObject> CreateNodeObject(const ModelNode& node, const std::shared_ptr<Geometria>& geom,
+                                                     const std::string& path, ModelObject* parent) {
+    auto obj = std::make_shared<ModelObject>();
+    obj->name = node.name;
+    obj->filePath = path;
+    obj->mesh = geom;
+    obj->meshIndices = node.meshes;
+    obj->parent = parent;
+    DecomposeToTransform(node.transform, *obj);
+
+    for (const auto& childNode : node.children) {
+        obj->children.push_back(CreateNodeObject(childNode, geom, path, obj.get()));
+    }
+    return obj;
+}
+
+// Copia profunda de un objeto con todos sus hijos (para Duplicar)
+static std::shared_ptr<ModelObject> CloneObject(const ModelObject& src, ModelObject* parent) {
+    auto copy = std::make_shared<ModelObject>(src);
+    copy->parent = parent;
+    copy->children.clear();
+    for (const auto& child : src.children) {
+        copy->children.push_back(CloneObject(*child, copy.get()));
+    }
+    return copy;
+}
 
 bool Renderer::AddModel(const std::string& path) {
     // Extraer el nombre de fichero sin directorios
@@ -115,10 +171,18 @@ bool Renderer::AddModel(const std::string& path) {
         return false;
     }
 
+    // Objeto raíz con el nombre del fichero. Su baseTransform centra y escala el modelo
+    // entero; debajo cuelgan los nodos del FBX (p.ej. Baker_house y Chimney).
+    const ModelNode& rootNode = geom->GetRootNode();
     auto obj = std::make_shared<ModelObject>();
     obj->name = fileName;
     obj->filePath = path;
     obj->mesh = geom;
+    obj->meshIndices = rootNode.meshes;
+    obj->baseTransform = geom->GetNormalizeMatrix() * rootNode.transform;
+    for (const auto& childNode : rootNode.children) {
+        obj->children.push_back(CreateNodeObject(childNode, geom, path, obj.get()));
+    }
 
     // Si ya hay otros objetos en la escena, colocarlo ligeramente al lado
     if (!objects.empty()) {
@@ -126,9 +190,10 @@ bool Renderer::AddModel(const std::string& path) {
     }
 
     objects.push_back(obj);
-    selectedObjectIndex = static_cast<int>(objects.size()) - 1;
+    selectedObject = obj;
 
-    LOG("Objeto '%s' anadido a la escena. Total objetos: %zu", obj->name.c_str(), objects.size());
+    LOG("Objeto '%s' anadido a la escena con %zu nodos hijos. Total objetos: %zu",
+        obj->name.c_str(), obj->children.size(), objects.size());
     return true;
 }
 
@@ -169,39 +234,55 @@ bool Renderer::ApplyTextureToSelected(const std::string& path) {
 }
 
 void Renderer::DuplicateSelected() {
-    if (selectedObjectIndex >= 0 && selectedObjectIndex < static_cast<int>(objects.size())) {
-        auto orig = objects[selectedObjectIndex];
-        auto copy = std::make_shared<ModelObject>(*orig);
-        copy->name = orig->name + " (Copia)";
-        copy->position.x += 1.2f; // Desplazamiento visible para distinguirlo
+    if (!selectedObject) return;
 
+    ModelObject* parent = selectedObject->parent;
+    auto copy = CloneObject(*selectedObject, parent);
+    copy->name = selectedObject->name + " (Copia)";
+
+    if (parent) {
+        // Nodo hijo: la copia queda como hermano, dentro del mismo padre
+        parent->children.push_back(copy);
+    } else {
+        copy->position.x += 1.2f; // Desplazamiento visible para distinguirlo
         objects.push_back(copy);
-        selectedObjectIndex = static_cast<int>(objects.size()) - 1;
-        LOG("Objeto duplicado como: %s", copy->name.c_str());
     }
+    selectedObject = copy;
+    LOG("Objeto duplicado como: %s", copy->name.c_str());
 }
 
 void Renderer::DeleteSelected() {
-    if (selectedObjectIndex >= 0 && selectedObjectIndex < static_cast<int>(objects.size())) {
-        LOG("Eliminando objeto: %s", objects[selectedObjectIndex]->name.c_str());
-        objects.erase(objects.begin() + selectedObjectIndex);
-        if (selectedObjectIndex >= static_cast<int>(objects.size())) {
-            selectedObjectIndex = static_cast<int>(objects.size()) - 1;
+    if (!selectedObject) return;
+
+    LOG("Eliminando objeto: %s", selectedObject->name.c_str());
+    ModelObject* parent = selectedObject->parent;
+    auto& list = parent ? parent->children : objects;
+    auto it = std::find(list.begin(), list.end(), selectedObject);
+    if (it != list.end()) {
+        list.erase(it);
+    }
+
+    // Tras borrar un hijo seleccionamos su padre; tras borrar un modelo, el último de la escena
+    selectedObject.reset();
+    if (parent) {
+        for (auto& root : objects) {
+            std::function<bool(const std::shared_ptr<ModelObject>&)> findParent =
+                [&](const std::shared_ptr<ModelObject>& o) {
+                    if (o.get() == parent) { selectedObject = o; return true; }
+                    for (auto& ch : o->children) if (findParent(ch)) return true;
+                    return false;
+                };
+            if (findParent(root)) break;
         }
+    } else if (!objects.empty()) {
+        selectedObject = objects.back();
     }
 }
 
 void Renderer::ClearScene() {
     objects.clear();
-    selectedObjectIndex = -1;
+    selectedObject.reset();
     LOG("Escena vaciada.");
-}
-
-std::shared_ptr<ModelObject> Renderer::GetSelectedObject() {
-    if (selectedObjectIndex >= 0 && selectedObjectIndex < static_cast<int>(objects.size())) {
-        return objects[selectedObjectIndex];
-    }
-    return nullptr;
 }
 
 // ─────────────────────────────────────────────
@@ -275,10 +356,7 @@ void Renderer::Render(Window& window) {
         RenderGrid();
     }
 
-    // Dibujar Objetos FBX o Cubo Demo
-    if (objects.empty() || showDemoCube) {
-        RenderCube();
-    }
+    // Dibujar Objetos FBX / OBJ de la escena
     if (!objects.empty()) {
         RenderObjects(view);
     }
@@ -334,28 +412,48 @@ void Renderer::RenderObjects(const glm::mat4& view) {
     glEnable(GL_LIGHTING);
     glEnable(GL_NORMALIZE);
 
-    for (size_t i = 0; i < objects.size(); ++i) {
-        const auto& obj = objects[i];
-        if (!obj || !obj->visible || !obj->mesh || !obj->mesh->HasMesh()) continue;
+    for (const auto& obj : objects) {
+        RenderNode(obj, glm::mat4(1.0f), view, nullptr, true, false, false);
+    }
 
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    glDisable(GL_NORMALIZE);
+    glDisable(GL_LIGHTING);
+}
+
+void Renderer::RenderNode(const std::shared_ptr<ModelObject>& obj, const glm::mat4& parentWorld, const glm::mat4& view,
+                          const Texture* inheritedTexture, bool inheritedShowTexture, bool inheritedWireframe,
+                          bool inheritedSelected) {
+    // Si un nodo está oculto, se ocultan también todos sus hijos
+    if (!obj || !obj->visible) return;
+
+    // Matriz local: Posición -> Rotación (YXZ) -> Escala -> transform propio del FBX
+    glm::mat4 local = glm::mat4(1.0f);
+    local = glm::translate(local, obj->position);
+    local = glm::rotate(local, glm::radians(obj->rotation.y), glm::vec3(0, 1, 0));
+    local = glm::rotate(local, glm::radians(obj->rotation.x), glm::vec3(1, 0, 0));
+    local = glm::rotate(local, glm::radians(obj->rotation.z), glm::vec3(0, 0, 1));
+    local = glm::scale(local, obj->scale);
+    local = local * obj->baseTransform;
+
+    // Matriz mundo = mundo del padre * local (así los hijos siguen al padre)
+    const glm::mat4 world = parentWorld * local;
+
+    // Propiedades que se heredan del padre
+    const bool isSelected = inheritedSelected || (obj == selectedObject);
+    const Texture* nodeTexture = (obj->overrideTexture && obj->overrideTexture->IsLoaded())
+                                 ? obj->overrideTexture.get() : inheritedTexture;
+    const bool showTex   = inheritedShowTexture && obj->showTexture;
+    const bool wireframe = inheritedWireframe || obj->wireframe;
+
+    if (obj->mesh && obj->mesh->HasMesh() && !obj->meshIndices.empty()) {
         glPushMatrix();
-
-        // Calcular matriz Model: Posición -> Rotación (YXZ) -> Escala
-        glm::mat4 model = glm::mat4(1.0f);
-        model = glm::translate(model, obj->position);
-        model = glm::rotate(model, glm::radians(obj->rotation.y), glm::vec3(0, 1, 0));
-        model = glm::rotate(model, glm::radians(obj->rotation.x), glm::vec3(1, 0, 0));
-        model = glm::rotate(model, glm::radians(obj->rotation.z), glm::vec3(0, 0, 1));
-        model = glm::scale(model, obj->scale);
-
-        glm::mat4 modelView = view * model;
-        glLoadMatrixf(glm::value_ptr(modelView));
+        glLoadMatrixf(glm::value_ptr(view * world));
 
         // Configurar material
-        bool isSelected = (static_cast<int>(i) == selectedObjectIndex);
-        const bool useTex = globalShowTextures && obj->showTexture;
+        const bool useTex = globalShowTextures && showTex;
         const bool texturedNow = useTex && obj->mesh->HasUVs() &&
-            (obj->mesh->HasAnyTexture() || (obj->overrideTexture && obj->overrideTexture->IsLoaded()));
+            (obj->mesh->HasAnyTexture() || nodeTexture != nullptr);
         // Con textura usamos blanco para no oscurecerla (GL_MODULATE multiplica textura * color)
         glm::vec3 objCol = texturedNow ? glm::vec3(1.0f) : obj->color;
         if (isSelected) {
@@ -372,57 +470,61 @@ void Renderer::RenderObjects(const glm::mat4& view) {
         glMaterialf (GL_FRONT_AND_BACK, GL_SHININESS, 32.0f);
 
         // Modo Wireframe por objeto o global
-        if (obj->wireframe || globalWireframe) {
+        if (wireframe || globalWireframe) {
             glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
         } else {
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         }
 
-        obj->mesh->Draw(useTex, obj->overrideTexture.get());
+        obj->mesh->Draw(obj->meshIndices, useTex, nodeTexture);
 
         glPopMatrix();
     }
 
-    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-    glDisable(GL_NORMALIZE);
-    glDisable(GL_LIGHTING);
+    for (const auto& child : obj->children) {
+        RenderNode(child, world, view, nodeTexture, showTex, wireframe, isSelected);
+    }
 }
 
 // ─────────────────────────────────────────────
-//  RenderCube: cubo demo de prueba
+//  DrawHierarchyNode: un nodo del árbol de la jerarquía
 // ─────────────────────────────────────────────
 
-void Renderer::RenderCube() {
-    glPushMatrix();
-    {
-        glm::mat4 cubeMatrix = glm::mat4(1.0f);
-        cubeMatrix = glm::translate(cubeMatrix, glm::vec3(0.0f, 0.5f, 0.0f));
-        cubeMatrix = glm::rotate(cubeMatrix, angle, glm::vec3(0.5f, 1.0f, 0.2f));
+void Renderer::DrawHierarchyNode(const std::shared_ptr<ModelObject>& obj) {
+    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick |
+                               ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen;
+    if (obj->children.empty()) flags |= ImGuiTreeNodeFlags_Leaf;
+    if (obj == selectedObject) flags |= ImGuiTreeNodeFlags_Selected;
 
-        // Multiplicar con la matriz actual del ModelView
-        glMultMatrixf(glm::value_ptr(cubeMatrix));
+    const char* visTag = obj->visible ? "[v] " : "[x] ";
+    const bool open = ImGui::TreeNodeEx((void*)obj.get(), flags, "%s%s", visTag, obj->name.c_str());
 
-        glEnableClientState(GL_VERTEX_ARRAY);
-        glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-
-        glBindBuffer(GL_ARRAY_BUFFER, buffs[0]);
-        glVertexPointer(3, GL_FLOAT, 0, NULL);
-
-        glBindBuffer(GL_ARRAY_BUFFER, buffs[2]);
-        glTexCoordPointer(2, GL_FLOAT, 0, NULL);
-        glColor3f(1.0f, 1.0f, 1.0f);
-
-        glEnable(GL_TEXTURE_2D);
-        texture.Bind();
-        glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
-
-        glDrawArrays(GL_TRIANGLES, 0, 36);
-
-        glDisableClientState(GL_TEXTURE_COORD_ARRAY);
-        glDisableClientState(GL_VERTEX_ARRAY);
-        glDisable(GL_TEXTURE_2D);
+    // Clic sobre el nombre (no sobre la flecha) = seleccionar
+    if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
+        selectedObject = obj;
     }
-    glPopMatrix();
+
+    // Menú contextual con clic derecho sobre el objeto
+    if (ImGui::BeginPopupContextItem()) {
+        selectedObject = obj;
+        if (ImGui::MenuItem(obj->visible ? "Ocultar" : "Mostrar")) {
+            obj->visible = !obj->visible;
+        }
+        if (ImGui::MenuItem("Duplicar")) {
+            pendingAction = PendingAction::DUPLICATE;
+        }
+        if (ImGui::MenuItem("Eliminar")) {
+            pendingAction = PendingAction::DELETE_OBJ;
+        }
+        ImGui::EndPopup();
+    }
+
+    if (open) {
+        for (const auto& child : obj->children) {
+            DrawHierarchyNode(child);
+        }
+        ImGui::TreePop();
+    }
 }
 
 // ─────────────────────────────────────────────
@@ -449,7 +551,7 @@ void Renderer::DrawUI(Window& window) {
         }
 
         if (ImGui::BeginMenu("Objeto")) {
-            bool hasSelection = (selectedObjectIndex >= 0 && selectedObjectIndex < (int)objects.size());
+            bool hasSelection = (selectedObject != nullptr);
             if (ImGui::MenuItem("Duplicar", "Ctrl+D", false, hasSelection)) {
                 DuplicateSelected();
             }
@@ -464,7 +566,7 @@ void Renderer::DrawUI(Window& window) {
                 }
             }
             if (ImGui::MenuItem("Deseleccionar", nullptr, false, hasSelection)) {
-                selectedObjectIndex = -1;
+                selectedObject.reset();
             }
             ImGui::EndMenu();
         }
@@ -473,7 +575,6 @@ void Renderer::DrawUI(Window& window) {
             ImGui::MenuItem("Mostrar Rejilla 3D (Grid)", nullptr, &showGrid);
             ImGui::MenuItem("Modo Malla Alambrica Global", nullptr, &globalWireframe);
             ImGui::MenuItem("Mostrar Texturas", nullptr, &globalShowTextures);
-            ImGui::MenuItem("Mostrar Cubo Demo", nullptr, &showDemoCube);
             ImGui::Separator();
             if (ImGui::MenuItem("Resetear Posicion Camara")) {
                 ResetCamera();
@@ -496,7 +597,7 @@ void Renderer::DrawUI(Window& window) {
             showLoadModal = true;
         }
         ImGui::SameLine();
-        bool hasSelection = (selectedObjectIndex >= 0 && selectedObjectIndex < (int)objects.size());
+        bool hasSelection = (selectedObject != nullptr);
         if (!hasSelection) ImGui::BeginDisabled();
         if (ImGui::Button("Duplicar", ImVec2(65, 26))) {
             DuplicateSelected();
@@ -509,37 +610,22 @@ void Renderer::DrawUI(Window& window) {
 
         ImGui::Separator();
 
-        // Lista de objetos
+        // Árbol de objetos: cada FBX con sus nodos (p.ej. BakerHouse.fbx > Baker_house, Chimney)
         ImGui::BeginChild("ObjetosList", ImVec2(0, 0), true);
         if (objects.empty()) {
             ImGui::TextDisabled("No hay modelos cargados.");
             ImGui::TextWrapped("Arrastra un archivo .FBX o .OBJ a esta ventana para agregarlo.");
         } else {
-            for (int i = 0; i < static_cast<int>(objects.size()); ++i) {
-                ImGui::PushID(i);
-                bool isSelected = (selectedObjectIndex == i);
-
-                std::string label = std::string(objects[i]->visible ? "[v] " : "[x] ") + objects[i]->name;
-                if (ImGui::Selectable(label.c_str(), isSelected)) {
-                    selectedObjectIndex = i;
-                }
-
-                // Menú contextual con clic derecho sobre el objeto
-                if (ImGui::BeginPopupContextItem()) {
-                    selectedObjectIndex = i;
-                    if (ImGui::MenuItem("Duplicar")) {
-                        DuplicateSelected();
-                    }
-                    if (ImGui::MenuItem("Eliminar")) {
-                        DeleteSelected();
-                    }
-                    ImGui::EndPopup();
-                }
-
-                ImGui::PopID();
+            for (const auto& obj : objects) {
+                DrawHierarchyNode(obj);
             }
         }
         ImGui::EndChild();
+
+        // Ejecutar ahora lo pedido desde el menú contextual (ya no se está recorriendo el árbol)
+        if (pendingAction == PendingAction::DUPLICATE) DuplicateSelected();
+        else if (pendingAction == PendingAction::DELETE_OBJ) DeleteSelected();
+        pendingAction = PendingAction::NONE;
     }
     ImGui::End();
 
@@ -556,6 +642,8 @@ void Renderer::DrawUI(Window& window) {
             if (ImGui::InputText("Nombre", nameBuf, sizeof(nameBuf))) {
                 sel->name = nameBuf;
             }
+            ImGui::Text("Padre: %s", sel->parent ? sel->parent->name.c_str() : "(ninguno, raiz de escena)");
+            ImGui::Text("Hijos: %zu", sel->children.size());
 
             ImGui::Spacing();
             ImGui::Separator();
@@ -563,7 +651,7 @@ void Renderer::DrawUI(Window& window) {
             // Transform: Posición, Rotación (Girar), Escala
             ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "TRANSFORM");
 
-            ImGui::DragFloat3("Posicion", glm::value_ptr(sel->position), 0.05f, -100.0f, 100.0f, "%.2f");
+            ImGui::DragFloat3("Posicion", glm::value_ptr(sel->position), 0.05f, 0.0f, 0.0f, "%.2f");
 
             // --- GIRAR EL MODELO ---
             ImGui::Text("Rotacion (Giro en Grados):");
@@ -580,7 +668,7 @@ void Renderer::DrawUI(Window& window) {
             if (ImGui::Button("Reset Rot"))  sel->rotation = glm::vec3(0.0f);
 
             // Escala
-            ImGui::DragFloat3("Escala", glm::value_ptr(sel->scale), 0.02f, 0.01f, 100.0f, "%.2f");
+            ImGui::DragFloat3("Escala", glm::value_ptr(sel->scale), 0.02f, 0.001f, 1000.0f, "%.3f");
 
             if (ImGui::Button("Restablecer Transform Completo")) {
                 sel->position = glm::vec3(0.0f);
@@ -633,9 +721,13 @@ void Renderer::DrawUI(Window& window) {
             }
 
             // Texturas que vienen del FBX
+            // Si el nodo tiene mallas propias, sólo se muestran los materiales que usan
             const auto& mats = sel->mesh->GetMaterials();
+            std::set<unsigned int> usedMats;
+            for (unsigned int idx : sel->meshIndices) usedMats.insert(sel->mesh->GetMeshMaterial(idx));
             int texCount = 0;
             for (size_t m = 0; m < mats.size(); ++m) {
+                if (!usedMats.empty() && usedMats.count((unsigned int)m) == 0) continue;
                 const auto& mt = mats[m];
                 if (mt.requestedPath.empty()) continue;
                 ++texCount;
@@ -663,8 +755,16 @@ void Renderer::DrawUI(Window& window) {
 
             // Información técnica de la malla FBX
             ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "INFORMACION GEOMETRICA");
-            ImGui::Text("Vertices Totales: %u", sel->mesh->GetTotalVertices());
-            ImGui::Text("Triangulos/Caras: %u", sel->mesh->GetTotalTriangles());
+            unsigned int nodeVerts = 0, nodeTris = 0;
+            for (unsigned int idx : sel->meshIndices) {
+                nodeVerts += sel->mesh->GetMeshVertices(idx);
+                nodeTris  += sel->mesh->GetMeshTriangles(idx);
+            }
+            ImGui::Text("Submallas en este nodo: %zu", sel->meshIndices.size());
+            ImGui::Text("Vertices del nodo: %u", nodeVerts);
+            ImGui::Text("Triangulos del nodo: %u", nodeTris);
+            ImGui::Text("Vertices Totales (FBX): %u", sel->mesh->GetTotalVertices());
+            ImGui::Text("Triangulos Totales (FBX): %u", sel->mesh->GetTotalTriangles());
             ImGui::Text("Radio AABB: %.2f", sel->mesh->GetRadius());
             glm::vec3 c = sel->mesh->GetCenter();
             ImGui::Text("Centro AABB: (%.2f, %.2f, %.2f)", c.x, c.y, c.z);
@@ -737,81 +837,5 @@ void Renderer::CleanUp() {
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();
 
-    if (buffs[0] != 0) {
-        glDeleteBuffers(3, buffs);
-        buffs[0] = buffs[1] = buffs[2] = 0;
-    }
-    texture.CleanUp();
     objects.clear();
-}
-
-// ─────────────────────────────────────────────
-//  InitCube: VBOs del cubo demo
-// ─────────────────────────────────────────────
-
-void Renderer::InitCube() {
-    float v[] = {
-        // Cara frontal
-        -0.5f, -0.5f,  0.5f,   0.5f, -0.5f,  0.5f,   0.5f,  0.5f,  0.5f,
-        -0.5f, -0.5f,  0.5f,   0.5f,  0.5f,  0.5f,  -0.5f,  0.5f,  0.5f,
-        // Cara trasera
-        -0.5f, -0.5f, -0.5f,  -0.5f,  0.5f, -0.5f,   0.5f,  0.5f, -0.5f,
-        -0.5f, -0.5f, -0.5f,   0.5f,  0.5f, -0.5f,   0.5f, -0.5f, -0.5f,
-        // Cara izquierda
-        -0.5f,  0.5f,  0.5f,  -0.5f,  0.5f, -0.5f,  -0.5f, -0.5f, -0.5f,
-        -0.5f,  0.5f,  0.5f,  -0.5f, -0.5f, -0.5f,  -0.5f, -0.5f,  0.5f,
-        // Cara derecha
-         0.5f,  0.5f,  0.5f,   0.5f, -0.5f, -0.5f,   0.5f,  0.5f, -0.5f,
-         0.5f, -0.5f, -0.5f,   0.5f,  0.5f,  0.5f,   0.5f, -0.5f,  0.5f,
-        // Cara superior
-        -0.5f,  0.5f, -0.5f,  -0.5f,  0.5f,  0.5f,   0.5f,  0.5f,  0.5f,
-        -0.5f,  0.5f, -0.5f,   0.5f,  0.5f,  0.5f,   0.5f,  0.5f, -0.5f,
-        // Cara inferior
-        -0.5f, -0.5f, -0.5f,   0.5f, -0.5f, -0.5f,   0.5f, -0.5f,  0.5f,
-        -0.5f, -0.5f, -0.5f,   0.5f, -0.5f,  0.5f,  -0.5f, -0.5f,  0.5f
-    };
-
-    float c[36 * 3];
-    float colorsPerFace[6][3] = {
-        {1.0f, 0.0f, 0.0f},
-        {0.0f, 1.0f, 0.0f},
-        {0.0f, 0.0f, 1.0f},
-        {1.0f, 1.0f, 0.0f},
-        {1.0f, 0.0f, 1.0f},
-        {0.0f, 1.0f, 1.0f}
-    };
-    for (int face = 0; face < 6; face++) {
-        for (int vert = 0; vert < 6; vert++) {
-            int idx = (face * 6 + vert) * 3;
-            c[idx + 0] = colorsPerFace[face][0];
-            c[idx + 1] = colorsPerFace[face][1];
-            c[idx + 2] = colorsPerFace[face][2];
-        }
-    }
-
-    float uvs[] = {
-        0.0f, 0.0f,  1.0f, 0.0f,  1.0f, 1.0f,
-        0.0f, 0.0f,  1.0f, 1.0f,  0.0f, 1.0f,
-        1.0f, 0.0f,  1.0f, 1.0f,  0.0f, 1.0f,
-        1.0f, 0.0f,  0.0f, 1.0f,  0.0f, 0.0f,
-        1.0f, 1.0f,  1.0f, 0.0f,  0.0f, 0.0f,
-        1.0f, 1.0f,  0.0f, 0.0f,  0.0f, 1.0f,
-        0.0f, 1.0f,  1.0f, 0.0f,  0.0f, 0.0f,
-        1.0f, 0.0f,  0.0f, 1.0f,  1.0f, 1.0f,
-        0.0f, 1.0f,  0.0f, 0.0f,  1.0f, 0.0f,
-        0.0f, 1.0f,  1.0f, 0.0f,  1.0f, 1.0f,
-        0.0f, 1.0f,  1.0f, 1.0f,  1.0f, 0.0f,
-        0.0f, 1.0f,  1.0f, 0.0f,  0.0f, 0.0f
-    };
-
-    glGenBuffers(3, buffs);
-
-    glBindBuffer(GL_ARRAY_BUFFER, buffs[0]);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(v), v, GL_STATIC_DRAW);
-
-    glBindBuffer(GL_ARRAY_BUFFER, buffs[1]);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(c), c, GL_STATIC_DRAW);
-
-    glBindBuffer(GL_ARRAY_BUFFER, buffs[2]);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(uvs), uvs, GL_STATIC_DRAW);
 }
