@@ -2,7 +2,7 @@
 
 ## a. Descripción del Motor y Enlaces
 
-Este proyecto consiste en un **motor de videojuegos minimalista desarrollado en C++** diseñado desde cero, utilizando CMake como sistema de construcción y librerías modernas para la gestión de ventanas, renderizado gráfico y gestión de recursos (como texturas y modelos 3D).
+Este proyecto consiste en un **motor de videojuegos minimalista en C++** diseñado desde cero, utilizando CMake como sistema de construcción y librerías modernas para la gestión de ventanas, renderizado gráfico y gestión de recursos (como texturas y modelos 3D).
 
 * **Enlace al repositorio de GitHub:** [Inserta aquí el enlace a tu repositorio][cite: 2]
 
