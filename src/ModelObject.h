@@ -39,6 +39,7 @@ struct ModelObject {
     // Texturas
     bool showTexture   = true;                // Mostrar / ocultar la textura de este objeto
     std::shared_ptr<Texture> overrideTexture; // Textura asignada a mano (arrastrando una imagen)
+    bool useCheckerTexture = false;           // Textura de comprobación (cuadros blancos y negros)
 
     // Animación de rotación opcional
     bool autoRotate    = false;

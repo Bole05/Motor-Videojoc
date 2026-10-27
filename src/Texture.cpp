@@ -2,6 +2,7 @@
 #include <IL/il.h>
 #include <SDL3/SDL.h>
 #include <fmt/core.h>
+#include "Log.h"
 #include <vector>
 
 Texture::Texture()
@@ -21,7 +22,7 @@ void Texture::InitDevIL() {
         ilEnable(IL_ORIGIN_SET);
         ilOriginFunc(IL_ORIGIN_LOWER_LEFT);
         devilInitialized = true;
-        fmt::print("DevIL inicializado correctamente con origen en LOWER_LEFT.\n");
+        LOG("DevIL inicializado correctamente (version %d) con origen en LOWER_LEFT.", (int)ilGetInteger(IL_VERSION_NUM));
     }
 }
 
@@ -61,12 +62,12 @@ bool Texture::Load(const std::string& filePath) {
 
     if (!loaded) {
         ILenum error = ilGetError();
-        fmt::print("Error al cargar la textura '{}' con DevIL. Código: 0x{:X} ({})\n", filePath, error, error);
+        LOG("Error al cargar la textura '%s' con DevIL. Codigo: 0x%X (%u)", filePath.c_str(), (unsigned)error, (unsigned)error);
         ilDeleteImages(1, &imgName);
         return false;
     }
 
-    fmt::print("Textura cargada en RAM desde: {}\n", successPath);
+    LOG("DevIL: textura cargada en RAM desde: %s", successPath.c_str());
 
     bool ok = UploadBoundILImage();
     ilDeleteImages(1, &imgName);
@@ -85,7 +86,7 @@ bool Texture::LoadFromMemory(const void* data, unsigned int size, const std::str
     // IL_TYPE_UNKNOWN: DevIL detecta el formato (png, jpg, tga, dds...) por la cabecera
     if (!ilLoadL(IL_TYPE_UNKNOWN, data, size)) {
         ILenum error = ilGetError();
-        fmt::print("Error al decodificar textura embebida '{}'. Código: 0x{:X}\n", debugName, error);
+        LOG("Error al decodificar textura embebida '%s'. Codigo: 0x%X", debugName.c_str(), (unsigned)error);
         ilDeleteImages(1, &imgName);
         return false;
     }
@@ -120,12 +121,12 @@ bool Texture::LoadFromBGRA(const void* pixels, int w, int h, const std::string& 
 bool Texture::UploadBoundILImage() {
     // 3. Convertir la imagen a formato estándar RGBA (8 bits por canal)
     if (!ilConvertImage(IL_RGBA, IL_UNSIGNED_BYTE)) {
-        fmt::print("Error al convertir la imagen a RGBA\n");
+        LOG("Error al convertir la imagen a RGBA");
         return false;
     }
     width = ilGetInteger(IL_IMAGE_WIDTH);
     height = ilGetInteger(IL_IMAGE_HEIGHT);
-    fmt::print("Dimensiones decodificadas: {}x{}\n", width, height);
+    LOG("DevIL: dimensiones decodificadas %dx%d", width, height);
 
     // 4. Crear el recurso en la GPU (OpenGL)
     glGenTextures(1, &id);
@@ -147,7 +148,7 @@ bool Texture::UploadBoundILImage() {
     // Desenlazar la textura para evitar modificaciones accidentales
     glBindTexture(GL_TEXTURE_2D, 0);
 
-    fmt::print("Textura subida con éxito a la GPU (OpenGL Texture ID: {})\n", id);
+    LOG("Textura subida a la GPU (OpenGL Texture ID: %u)", (unsigned)id);
     return true;
 }
 

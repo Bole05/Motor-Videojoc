@@ -28,6 +28,8 @@ set(MOTOR_SOURCES
     src/Geometria.cpp
     src/Shader.h
     src/Shader.cpp
+    src/SystemInfo.h
+    src/SystemInfo.cpp
     src/ModelObject.h
     src/Log.h
     src/Log.cpp
@@ -50,4 +52,4 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     ${CMAKE_CURRENT_SOURCE_DIR}/assets
     $<TARGET_FILE_DIR:Motor>/assets
-)
+)

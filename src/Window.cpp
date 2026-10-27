@@ -1,5 +1,6 @@
 #include "Window.h"
 #include <fmt/core.h>
+#include "Log.h"
 
 Window::Window()
     : window(nullptr), gl_context(nullptr), width(0), height(0) {
@@ -16,10 +17,10 @@ bool Window::Init(const char* title, unsigned int w, unsigned int h, bool resiza
     // 1. Inicializar el subsistema de video de SDL3
     // SDL_Init enciende la librería SDL3 para la parte de video
     if (!SDL_Init(SDL_INIT_VIDEO)) {
-        fmt::print("Error al inicializar SDL3: {}\n", SDL_GetError());
+        LOG("Error al inicializar SDL3: %s", SDL_GetError());
         return false;
     }
-    fmt::print("SDL3 inicializado correctamente.\n");
+    LOG("SDL3 inicializado correctamente (version %d.%d.%d).", SDL_VERSIONNUM_MAJOR(SDL_GetVersion()), SDL_VERSIONNUM_MINOR(SDL_GetVersion()), SDL_VERSIONNUM_MICRO(SDL_GetVersion()));
 
     // 2. Configuración de atributos de OpenGL antes de crear la ventana
     // Usamos el perfil Compatibility
@@ -50,21 +51,21 @@ bool Window::Init(const char* title, unsigned int w, unsigned int h, bool resiza
     // 3. Crear la ventana
     window = SDL_CreateWindow(title, width, height, flags);
     if (!window) {
-        fmt::print("Error al crear la ventana: {}\n", SDL_GetError());
+        LOG("Error al crear la ventana: %s", SDL_GetError());
         CleanUp();
         return false;
     }
-    fmt::print("Ventana creada con éxito ({}x{}).\n", width, height);
+    LOG("Ventana creada con exito (%ux%u).", width, height);
 
     // 4. Crear el contexto de OpenGL asociado a la ventana
     // El contexto es el espacio de trabajo que conecta la tarjeta gráfica con nuestra ventana
     gl_context = SDL_GL_CreateContext(window);
     if (!gl_context) {
-        fmt::print("Error al crear el contexto OpenGL: {}\n", SDL_GetError());
+        LOG("Error al crear el contexto OpenGL: %s", SDL_GetError());
         CleanUp();
         return false;
     }
-    fmt::print("Contexto OpenGL creado con éxito.\n");
+    LOG("Contexto OpenGL creado con exito.");
 
     return true;
 }

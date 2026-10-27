@@ -1,6 +1,7 @@
 #include "Engine.h"
 #include <glad/glad.h>
 #include <fmt/core.h>
+#include "Log.h"
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
 
@@ -29,15 +30,15 @@ bool Engine::Init() {
 
     // 2. Inicializar GLAD (carga los punteros de función de OpenGL desde el driver)
     if (gladLoadGLLoader(reinterpret_cast<GLADloadproc>(SDL_GL_GetProcAddress)) == 0) {
-        fmt::print("Error al cargar la librería GLAD\n");
+        LOG("Error al cargar la libreria GLAD");
         return false;
     }
 
     // Información de la GPU
-    fmt::print("Vendor: {}\n",             (const char*)glGetString(GL_VENDOR));
-    fmt::print("Renderer: {}\n",           (const char*)glGetString(GL_RENDERER));
-    fmt::print("OpenGL version: {}\n",     (const char*)glGetString(GL_VERSION));
-    fmt::print("GLSL: {}\n",               (const char*)glGetString(GL_SHADING_LANGUAGE_VERSION));
+    LOG("GLAD cargado. Vendor: %s", (const char*)glGetString(GL_VENDOR));
+    LOG("GPU: %s", (const char*)glGetString(GL_RENDERER));
+    LOG("OpenGL version: %s", (const char*)glGetString(GL_VERSION));
+    LOG("GLSL: %s", (const char*)glGetString(GL_SHADING_LANGUAGE_VERSION));
 
     // 3. Estado global de OpenGL
     glViewport(0, 0, window.GetWidth(), window.GetHeight());
@@ -59,9 +60,19 @@ bool Engine::Init() {
 void Engine::Run() {
     isRunning = true;
     while (isRunning) {
+        const Uint64 frameStart = SDL_GetTicksNS();
+
         ProcessInput();
         Update();
         Render();
+
+        // Límite de FPS (panel Configuración). 0 = sin límite.
+        const int limit = renderer.GetFpsLimit();
+        if (limit > 0) {
+            const Uint64 target = 1000000000ull / (Uint64)limit;
+            const Uint64 elapsed = SDL_GetTicksNS() - frameStart;
+            if (elapsed < target) SDL_DelayNS(target - elapsed);
+        }
     }
 }
 
@@ -79,7 +90,7 @@ void Engine::ProcessInput() {
 
         if (event.type == SDL_EVENT_QUIT) {
             isRunning = false;
-            fmt::print("Cerrando el motor...\n");
+            LOG("Cerrando el motor...");
         }
         else if (event.type == SDL_EVENT_WINDOW_RESIZED) {
             unsigned int w = event.window.data1;
@@ -105,26 +116,49 @@ void Engine::ProcessInput() {
         }
         else if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
             if (!io.WantCaptureMouse) {
-                if (event.button.button == SDL_BUTTON_RIGHT || event.button.button == SDL_BUTTON_MIDDLE) {
-                    renderer.SetMouseDragging(true);
+                const SDL_Keymod mod = SDL_GetModState();
+                if (event.button.button == SDL_BUTTON_RIGHT) {
+                    // Clic derecho (mantener): mirar alrededor + moverse con WASD
+                    renderer.BeginFreeLook();
+                    SDL_SetWindowRelativeMouseMode(window.GetWindow(), true);   // ocultar y fijar el cursor
+                }
+                else if (event.button.button == SDL_BUTTON_MIDDLE) {
+                    renderer.BeginPan();
                 }
                 else if (event.button.button == SDL_BUTTON_LEFT) {
-                    // Clic izquierdo en la vista 3D = seleccionar la pieza del modelo bajo el ratón
-                    // (con Alt se selecciona el modelo entero)
-                    const bool wholeModel = (SDL_GetModState() & SDL_KMOD_ALT) != 0;
-                    renderer.PickAt(event.button.x, event.button.y,
-                                    (float)window.GetWidth(), (float)window.GetHeight(), wholeModel);
+                    if (mod & SDL_KMOD_ALT) {
+                        // ALT + clic izquierdo (mantener) + arrastrar: orbitar alrededor del objeto seleccionado
+                        renderer.BeginOrbit();
+                    } else {
+                        // Clic izquierdo = seleccionar la pieza bajo el ratón (con CTRL, el modelo entero)
+                        const bool wholeModel = (mod & SDL_KMOD_CTRL) != 0;
+                        renderer.PickAt(event.button.x, event.button.y,
+                                        (float)window.GetWidth(), (float)window.GetHeight(), wholeModel);
+                    }
                 }
             }
         }
         else if (event.type == SDL_EVENT_MOUSE_BUTTON_UP) {
-            if (event.button.button == SDL_BUTTON_RIGHT || event.button.button == SDL_BUTTON_MIDDLE) {
-                renderer.SetMouseDragging(false);
+            if (event.button.button == SDL_BUTTON_RIGHT && renderer.IsFreeLookActive()) {
+                renderer.EndFreeLook();
+                SDL_SetWindowRelativeMouseMode(window.GetWindow(), false);
+            }
+            else if (event.button.button == SDL_BUTTON_LEFT) {
+                renderer.EndOrbit();
+            }
+            else if (event.button.button == SDL_BUTTON_MIDDLE) {
+                renderer.EndPan();
             }
         }
         else if (event.type == SDL_EVENT_MOUSE_MOTION) {
-            if (renderer.IsMouseDragging()) {
-                renderer.OnMouseMoved(event.motion.xrel, event.motion.yrel);
+            if (renderer.IsFreeLookActive()) {
+                renderer.FreeLook(event.motion.xrel, event.motion.yrel);
+            }
+            else if (renderer.IsOrbitActive()) {
+                renderer.Orbit(event.motion.xrel, event.motion.yrel);
+            }
+            else if (renderer.IsPanActive()) {
+                renderer.Pan(event.motion.xrel, event.motion.yrel);
             }
         }
         else if (event.type == SDL_EVENT_MOUSE_WHEEL) {
@@ -140,6 +174,10 @@ void Engine::ProcessInput() {
                 }
                 else if (event.key.key == SDLK_D && (event.key.mod & SDL_KMOD_CTRL)) {
                     renderer.DuplicateSelected();
+                }
+                else if (event.key.key == SDLK_F && !(event.key.mod & (SDL_KMOD_CTRL | SDL_KMOD_ALT))) {
+                    // Tecla F: enfocar la cámara en el objeto seleccionado
+                    renderer.FocusSelected();
                 }
             }
         }
@@ -169,5 +207,5 @@ void Engine::Render() {
 void Engine::CleanUp() {
     renderer.CleanUp();
     window.CleanUp();
-    fmt::print("Motor apagado correctamente.\n");
+    LOG("Motor apagado correctamente.");
 }

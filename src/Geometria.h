@@ -62,6 +62,9 @@ struct MaterialTexture
 	bool originalEmbedded = false;
 };
 
+// Geometrías básicas que el motor puede crear sin cargar ningún fichero
+enum class PrimitiveType { Cube, Sphere, Cylinder, Cone, Plane, Pyramid };
+
 class Geometria {
 public:
 	Geometria();
@@ -71,9 +74,16 @@ public:
 	Geometria(const Geometria&) = delete;
 	Geometria& operator=(const Geometria&) = delete;
 
-	static void DebugInit();
+	static void DebugInit();       // conecta los mensajes de Assimp al LOG / Consola
+	static void DebugShutdown();   // los desconecta (al cerrar el motor)
 
 	bool Load(const std::string& file_path);
+
+	// Crea una geometría básica (cubo, esfera...) de tamaño 1 centrada en el origen,
+	// con normales y coordenadas UV (para poder ponerle textura)
+	bool CreatePrimitive(PrimitiveType type);
+	static const char* PrimitiveName(PrimitiveType type);
+	bool IsPrimitive() const { return isPrimitive; }
 
 	// Dibuja las submallas indicadas (las de un nodo de la jerarquía).
 	// La matriz del nodo ya debe estar cargada en OpenGL antes de llamar.
@@ -151,6 +161,7 @@ private:
 	std::vector<MaterialTexture> materials;
 	ModelNode rootNode;
 	bool hasLoaded = false;
+	bool isPrimitive = false;
 	bool hasUVs = false;
 	std::string filePath;
 	unsigned int totalVertices = 0;

@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <map>
 #include <assimp/config.h>
+#include <assimp/version.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -21,10 +22,42 @@ Geometria::~Geometria() {
 	CleanUp();
 }
 
+// Los mensajes de Assimp se reenvían a LOG para que salgan en el panel "Consola"
+static void AssimpLogCallback(const char* message, char* /*user*/) {
+	std::string msg(message ? message : "");
+	while (!msg.empty() && (msg.back() == '\n' || msg.back() == '\r')) msg.pop_back();
+	if (!msg.empty()) LOG("[Assimp] %s", msg.c_str());
+}
+
+static bool assimpLogAttached = false;
+
+void Geometria::DebugShutdown() {
+	if (!assimpLogAttached) return;
+	aiDetachAllLogStreams();
+	assimpLogAttached = false;
+}
+
 void Geometria::DebugInit() {
-	aiLogStream stream;
-	stream = aiGetPredefinedLogStream(aiDefaultLogStream_DEBUGGER, nullptr);
-	aiAttachLogStream(&stream);
+	if (assimpLogAttached) return;
+	assimpLogAttached = true;
+
+	// IMPORTANTE: Assimp NO copia el aiLogStream, guarda una referencia a él.
+	// Por eso tienen que ser 'static' (vivir todo el programa). Si fueran variables locales,
+	// al salir de esta función Assimp se quedaría apuntando a memoria basura y el programa
+	// fallaría (access violation en LogToCallbackRedirector::write) al cargar un modelo.
+	static aiLogStream debugger;
+	static aiLogStream toConsole;
+
+	// Salida del depurador de Visual Studio (como antes)
+	debugger = aiGetPredefinedLogStream(aiDefaultLogStream_DEBUGGER, nullptr);
+	aiAttachLogStream(&debugger);
+
+	// Y además a nuestro LOG / Consola
+	toConsole.callback = AssimpLogCallback;
+	toConsole.user = nullptr;
+	aiAttachLogStream(&toConsole);
+	LOG("Assimp %u.%u.%u inicializado (mensajes redirigidos a la Consola).",
+	    aiGetVersionMajor(), aiGetVersionMinor(), aiGetVersionPatch());
 }
 
 // Busca el fichero de textura en varias ubicaciones razonables.
@@ -617,6 +650,207 @@ void Geometria::DrawShader(const std::vector<unsigned int>& meshIndices, bool us
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 }
 
+// ─────────────────────────────────────────────
+//  Geometrías básicas (primitivas)
+// ─────────────────────────────────────────────
+
+const char* Geometria::PrimitiveName(PrimitiveType type) {
+	switch (type) {
+	case PrimitiveType::Cube:     return "Cubo";
+	case PrimitiveType::Sphere:   return "Esfera";
+	case PrimitiveType::Cylinder: return "Cilindro";
+	case PrimitiveType::Cone:     return "Cono";
+	case PrimitiveType::Plane:    return "Plano";
+	case PrimitiveType::Pyramid:  return "Piramide";
+	}
+	return "Primitiva";
+}
+
+namespace {
+	// Datos de una malla mientras se construye
+	struct MeshBuilder {
+		std::vector<float> pos, nrm, uv;
+		std::vector<unsigned int> idx;
+
+		unsigned int Vertex(const glm::vec3& p, const glm::vec3& n, const glm::vec2& t) {
+			pos.insert(pos.end(), { p.x, p.y, p.z });
+			nrm.insert(nrm.end(), { n.x, n.y, n.z });
+			uv.insert(uv.end(), { t.x, t.y });
+			return (unsigned int)(pos.size() / 3 - 1);
+		}
+		void Tri(unsigned int a, unsigned int b, unsigned int c) { idx.insert(idx.end(), { a, b, c }); }
+		void Quad(unsigned int a, unsigned int b, unsigned int c, unsigned int d) { Tri(a, b, c); Tri(a, c, d); }
+
+		// Cara plana de 4 esquinas (en orden antihorario visto desde fuera)
+		void Face(const glm::vec3& a, const glm::vec3& b, const glm::vec3& c, const glm::vec3& d) {
+			const glm::vec3 n = glm::normalize(glm::cross(b - a, c - a));
+			const unsigned int i0 = Vertex(a, n, { 0, 0 }), i1 = Vertex(b, n, { 1, 0 });
+			const unsigned int i2 = Vertex(c, n, { 1, 1 }), i3 = Vertex(d, n, { 0, 1 });
+			Quad(i0, i1, i2, i3);
+		}
+	};
+
+	const float PI = 3.14159265358979f;
+
+	void BuildCube(MeshBuilder& m) {
+		const float h = 0.5f;
+		const glm::vec3 p[8] = { {-h,-h,-h}, { h,-h,-h}, { h, h,-h}, {-h, h,-h},
+		                         {-h,-h, h}, { h,-h, h}, { h, h, h}, {-h, h, h} };
+		m.Face(p[4], p[5], p[6], p[7]);   // +Z
+		m.Face(p[1], p[0], p[3], p[2]);   // -Z
+		m.Face(p[5], p[1], p[2], p[6]);   // +X
+		m.Face(p[0], p[4], p[7], p[3]);   // -X
+		m.Face(p[7], p[6], p[2], p[3]);   // +Y
+		m.Face(p[0], p[1], p[5], p[4]);   // -Y
+	}
+
+	void BuildPlane(MeshBuilder& m) {
+		const float h = 0.5f;
+		m.Face({ -h, 0, h }, { h, 0, h }, { h, 0, -h }, { -h, 0, -h });   // mirando hacia +Y
+	}
+
+	void BuildSphere(MeshBuilder& m, int slices = 32, int stacks = 16) {
+		const float r = 0.5f;
+		for (int i = 0; i <= stacks; ++i) {
+			const float v = (float)i / stacks;
+			const float phi = v * PI;   // 0 = polo norte, PI = polo sur
+			for (int j = 0; j <= slices; ++j) {
+				const float u = (float)j / slices;
+				const float theta = u * 2.0f * PI;
+				const float sp = (i == 0 || i == stacks) ? 0.0f : std::sin(phi);   // polos exactos
+				const float cp = (i == 0) ? 1.0f : (i == stacks ? -1.0f : std::cos(phi));
+				const glm::vec3 n(sp * std::sin(theta), cp, sp * std::cos(theta));
+				m.Vertex(n * r, n, { u, 1.0f - v });
+			}
+		}
+		for (int i = 0; i < stacks; ++i) {
+			for (int j = 0; j < slices; ++j) {
+				const unsigned int a = i * (slices + 1) + j, b = a + slices + 1;
+				// En los polos el cuadrilátero se reduce a un triángulo (dos esquinas coinciden)
+				if (i != 0)          m.Tri(a, b, a + 1);
+				if (i != stacks - 1) m.Tri(a + 1, b, b + 1);
+			}
+		}
+	}
+
+	// Cilindro (topRadius = bottomRadius) o cono (topRadius = 0), altura 1, centrado en el origen
+	void BuildCylinder(MeshBuilder& m, float bottomRadius, float topRadius, int slices = 32) {
+		const float h = 0.5f;
+		// Pendiente del lateral, para que las normales del cono sean correctas
+		const float slope = (bottomRadius - topRadius) / 1.0f;
+		for (int j = 0; j <= slices; ++j) {
+			const float u = (float)j / slices;
+			const float t = u * 2.0f * PI;
+			const glm::vec3 dir(std::sin(t), 0.0f, std::cos(t));
+			const glm::vec3 n = glm::normalize(glm::vec3(dir.x, slope, dir.z));
+			m.Vertex(dir * bottomRadius + glm::vec3(0, -h, 0), n, { u, 0.0f });
+			m.Vertex(dir * topRadius    + glm::vec3(0,  h, 0), n, { u, 1.0f });
+		}
+		for (int j = 0; j < slices; ++j) {
+			const unsigned int b0 = j * 2, t0 = b0 + 1, b1 = b0 + 2, t1 = b0 + 3;
+			m.Quad(b0, b1, t1, t0);
+		}
+		// Tapas (abajo siempre; arriba sólo si no es un cono)
+		auto cap = [&](float y, float radius, bool up) {
+			const glm::vec3 n(0, up ? 1.0f : -1.0f, 0);
+			const unsigned int center = m.Vertex({ 0, y, 0 }, n, { 0.5f, 0.5f });
+			for (int j = 0; j <= slices; ++j) {
+				const float t = (float)j / slices * 2.0f * PI;
+				m.Vertex({ std::sin(t) * radius, y, std::cos(t) * radius }, n,
+				         { 0.5f + 0.5f * std::sin(t), 0.5f + 0.5f * std::cos(t) });
+			}
+			for (int j = 0; j < slices; ++j) {
+				const unsigned int a = center + 1 + j, b = a + 1;
+				if (up) m.Tri(center, a, b); else m.Tri(center, b, a);
+			}
+		};
+		cap(-h, bottomRadius, false);
+		if (topRadius > 0.0f) cap(h, topRadius, true);
+	}
+
+	void BuildPyramid(MeshBuilder& m) {
+		const float h = 0.5f;
+		const glm::vec3 a(-h, -h, h), b(h, -h, h), c(h, -h, -h), d(-h, -h, -h), top(0, h, 0);
+		m.Face(d, c, b, a);   // base (mirando hacia -Y)
+		auto side = [&](const glm::vec3& p0, const glm::vec3& p1) {
+			const glm::vec3 n = glm::normalize(glm::cross(p1 - p0, top - p0));
+			const unsigned int i0 = m.Vertex(p0, n, { 0, 0 }), i1 = m.Vertex(p1, n, { 1, 0 });
+			const unsigned int i2 = m.Vertex(top, n, { 0.5f, 1 });
+			m.Tri(i0, i1, i2);
+		};
+		side(a, b); side(b, c); side(c, d); side(d, a);
+	}
+}
+
+bool Geometria::CreatePrimitive(PrimitiveType type) {
+	CleanUp();
+
+	MeshBuilder b;
+	switch (type) {
+	case PrimitiveType::Cube:     BuildCube(b); break;
+	case PrimitiveType::Sphere:   BuildSphere(b); break;
+	case PrimitiveType::Cylinder: BuildCylinder(b, 0.5f, 0.5f); break;
+	case PrimitiveType::Cone:     BuildCylinder(b, 0.5f, 0.0f); break;
+	case PrimitiveType::Plane:    BuildPlane(b); break;
+	case PrimitiveType::Pyramid:  BuildPyramid(b); break;
+	}
+
+	Mesh mesh;
+	mesh.num_vertex = (unsigned int)(b.pos.size() / 3);
+	mesh.num_index = (unsigned int)b.idx.size();
+	mesh.vertex = new float[b.pos.size()];
+	mesh.normal = new float[b.nrm.size()];
+	mesh.texcoord = new float[b.uv.size()];
+	mesh.index = new unsigned int[b.idx.size()];
+	std::copy(b.pos.begin(), b.pos.end(), mesh.vertex);
+	std::copy(b.nrm.begin(), b.nrm.end(), mesh.normal);
+	std::copy(b.uv.begin(), b.uv.end(), mesh.texcoord);
+	std::copy(b.idx.begin(), b.idx.end(), mesh.index);
+	mesh.normalsFromFile = false;
+
+	mesh.aabbMin = glm::vec3(FLT_MAX);
+	mesh.aabbMax = glm::vec3(-FLT_MAX);
+	for (unsigned int v = 0; v < mesh.num_vertex; ++v) {
+		const glm::vec3 p(mesh.vertex[v * 3], mesh.vertex[v * 3 + 1], mesh.vertex[v * 3 + 2]);
+		mesh.aabbMin = glm::min(mesh.aabbMin, p);
+		mesh.aabbMax = glm::max(mesh.aabbMax, p);
+	}
+
+	// Subir a la GPU (igual que en Load)
+	glGenBuffers(1, &mesh.id_vertex);
+	glBindBuffer(GL_ARRAY_BUFFER, mesh.id_vertex);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(float) * b.pos.size(), mesh.vertex, GL_STATIC_DRAW);
+	glGenBuffers(1, &mesh.id_normal);
+	glBindBuffer(GL_ARRAY_BUFFER, mesh.id_normal);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(float) * b.nrm.size(), mesh.normal, GL_STATIC_DRAW);
+	glGenBuffers(1, &mesh.id_texcoord);
+	glBindBuffer(GL_ARRAY_BUFFER, mesh.id_texcoord);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(float) * b.uv.size(), mesh.texcoord, GL_STATIC_DRAW);
+	glGenBuffers(1, &mesh.id_index);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.id_index);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned int) * b.idx.size(), mesh.index, GL_STATIC_DRAW);
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+
+	meshes.push_back(mesh);
+	totalVertices = mesh.num_vertex;
+	totalTriangles = mesh.num_index / 3;
+	hasUVs = true;
+	isPrimitive = true;
+	filePath = std::string("(primitiva) ") + PrimitiveName(type);
+
+	rootNode = ModelNode();
+	rootNode.name = PrimitiveName(type);
+	rootNode.meshes.push_back(0);
+
+	meshCenter = (mesh.aabbMin + mesh.aabbMax) * 0.5f;
+	meshRadius = glm::length(mesh.aabbMax - meshCenter);
+	hasLoaded = true;
+
+	LOG("Primitiva creada: %s (%u vertices, %u triangulos)", PrimitiveName(type), totalVertices, totalTriangles);
+	return true;
+}
+
 void Geometria::CleanUp() {
 	for (auto& mesh : meshes) {
 		if (mesh.id_vertex != 0) {
@@ -654,5 +888,7 @@ void Geometria::CleanUp() {
 	totalTriangles = 0;
 	meshCenter = glm::vec3(0.0f);
 	meshRadius = 1.0f;
-	aiDetachAllLogStreams();
+	isPrimitive = false;
+	// (Antes aquí se llamaba a aiDetachAllLogStreams(), pero eso desconectaba el log de Assimp
+	//  cada vez que se cargaba un modelo. Ahora se hace una sola vez en DebugShutdown.)
 }

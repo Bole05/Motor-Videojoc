@@ -55,15 +55,42 @@ public:
     // Devuelve false si el movimiento no es válido (p.ej. meterlo dentro de su propio hijo).
     bool ReparentObject(ModelObject* obj, ModelObject* newParent, int index = -1);
 
+    // Crea una geometría básica (cubo, esfera...) delante de la cámara
+    void AddPrimitive(PrimitiveType type);
+
+    // Límite de FPS elegido en el panel Configuración (0 = sin límite). Lo aplica Engine::Run.
+    int GetFpsLimit() const { return fpsLimit; }
+
     // --- Selección con el ratón en la vista 3D ---
     // (x, y) en píxeles de la ventana. Selecciona la pieza del modelo que hay bajo el
     // ratón (p.ej. la chimenea). Con selectWholeModel = true se selecciona el modelo raíz.
     // Si no hay nada debajo, se deselecciona.
     void PickAt(float x, float y, float windowWidth, float windowHeight, bool selectWholeModel = false);
 
-    // --- Controles de Cámara Orbital ---
-    void OnMouseMoved(float deltaX, float deltaY);
+    // --- Controles de Cámara (los del README) ---
+    //  Clic derecho (mantener) + WASD     : moverse tipo FPS          (Update)
+    //  Clic derecho (mantener) + ratón    : mirar alrededor            (FreeLook)
+    //  Rueda del ratón                    : zoom in / out              (OnMouseWheel)
+    //  ALT + clic izquierdo + arrastrar   : orbitar alrededor del objeto seleccionado (Orbit)
+    //  Tecla F                            : enfocar el objeto seleccionado (FocusSelected)
+    //  SHIFT (mantener)                   : velocidad x2 al moverse
+    void BeginFreeLook()  { freeLookActive = true; }
+    void EndFreeLook()    { freeLookActive = false; }
+    bool IsFreeLookActive() const { return freeLookActive; }
+    void FreeLook(float deltaX, float deltaY);
+
+    void BeginOrbit();
+    void EndOrbit()       { orbitActive = false; }
+    bool IsOrbitActive() const { return orbitActive; }
+    void Orbit(float deltaX, float deltaY);
+
+    void BeginPan()       { panActive = true; }   // extra: clic central + arrastrar = desplazar
+    void EndPan()         { panActive = false; }
+    bool IsPanActive() const { return panActive; }
+    void Pan(float deltaX, float deltaY);
+
     void OnMouseWheel(float wheelY);
+    void FocusSelected();
     void ResetCamera();
 
     // --- Getters / Setters ---
@@ -72,8 +99,6 @@ public:
     void SetSelectedObject(const std::shared_ptr<ModelObject>& obj) { selectedObject = obj; }
     size_t GetObjectCount() const { return objects.size(); }
 
-    bool IsMouseDragging() const { return isMouseDragging; }
-    void SetMouseDragging(bool dragging) { isMouseDragging = dragging; }
 
 private:
     void RenderGrid();
@@ -99,6 +124,13 @@ private:
     // Pinta un nodo en el panel de jerarquía (TreeNode de ImGui) y sus hijos
     void DrawHierarchyNode(const std::shared_ptr<ModelObject>& obj);
     void DrawUI(Window& window);
+
+    // --- Paneles del editor (menú View) ---
+    void DrawConsolePanel();
+    void DrawConfigPanel(Window& window);
+    void DrawAboutWindow();
+    void DrawMainMenuBar(Window& window);
+    void CreateCheckerTexture();
 
     // --- Shaders (GLSL) ---
     // Carga assets/shaders/default.vert/.frag (o el código por defecto si no se encuentran)
@@ -138,12 +170,24 @@ private:
     // Al seleccionar desde la vista 3D, la jerarquía abre los padres y se desplaza hasta el objeto
     bool revealSelectionInHierarchy = false;
 
-    // Cámara orbital estilo aplicación de modelado 3D
-    float cameraDistance = 3.5f;
+    // Cámara libre: posición + orientación (yaw / pitch en grados).
+    // La cámara mira en la dirección GetCameraForward(). cameraFocusDistance es la distancia
+    // al punto que se está mirando (se usa para orbitar cuando no hay nada seleccionado).
+    glm::vec3 cameraPosition = glm::vec3(0.0f);
     float cameraYaw = 0.0f;
     float cameraPitch = 20.0f;
-    glm::vec3 cameraTarget = glm::vec3(0.0f, 0.0f, 0.0f);
-    bool isMouseDragging = false;
+    float cameraFocusDistance = 3.5f;
+    float cameraMoveSpeed = 2.5f;     // unidades por segundo (x2 con SHIFT)
+    float cameraLookSensitivity = 0.25f;
+    float cameraOrbitSensitivity = 0.35f;
+    bool freeLookActive = false;
+    bool orbitActive = false;
+    bool panActive = false;
+    glm::vec3 orbitPivot = glm::vec3(0.0f);
+    glm::vec3 GetCameraForward() const;
+    glm::vec3 GetCameraRight() const;
+    // Coloca la cámara a 'distance' de 'target' según el yaw / pitch actuales
+    void PlaceCameraAround(const glm::vec3& target, float distance);
 
     // Modo Debug (F1 o menú "Debug")
     bool debugMode = false;
@@ -177,6 +221,35 @@ private:
     std::vector<char> vertexEditBuf, fragmentEditBuf;   // texto del editor
     std::string shaderStatus;
     bool shaderStatusOk = true;
+
+    // Ventanas del editor (se muestran / ocultan desde el menú View)
+    bool showScene = true;
+    bool showHierarchy = true;
+    bool showInspector = true;
+    bool showConsole = true;
+    bool showConfig = false;
+    bool showAbout = false;
+
+    // Consola
+    bool consoleShowInfo = true, consoleShowWarnings = true, consoleShowErrors = true;
+    bool consoleAutoScroll = true;
+    char consoleFilter[128] = "";
+    size_t consoleLastCount = 0;
+
+    // Configuración: historial de FPS y opciones de los módulos
+    static const int FPS_HISTORY = 100;
+    float fpsHistory[FPS_HISTORY] = {};
+    float msHistory[FPS_HISTORY] = {};
+    int fpsHistoryIndex = 0;
+    int fpsLimit = 0;                 // 0 = sin límite
+    bool vsync = true;
+    bool depthTest = true;
+    bool cullFace = false;
+    bool fixedLighting = true;        // iluminación del pipeline fijo (cuando no se usan shaders)
+    char windowTitle[128] = "Motor 3D - Model Viewer & Editor";
+
+    // Textura de comprobación (checker) compartida por todos los objetos que la usan
+    std::shared_ptr<Texture> checkerTexture;
 
     // Opciones visuales
     bool showGrid = true;
