@@ -26,6 +26,14 @@ struct Mesh
 	float* texcoord = nullptr;
 
 	unsigned int materialIndex = 0; // Índice del material de Assimp que usa esta submalla
+
+	// Origen de las normales: true = venían en el fichero (FBX/OBJ),
+	// false = el fichero no traía y las ha calculado Assimp (normales suaves)
+	bool normalsFromFile = false;
+
+	// AABB de la submalla en su espacio local (se calcula al cargar)
+	glm::vec3 aabbMin = glm::vec3(0.0f);
+	glm::vec3 aabbMax = glm::vec3(0.0f);
 };
 
 // Nodo de la jerarquía del modelo (copia de los aiNode del FBX).
@@ -75,6 +83,12 @@ public:
 	void Draw(const std::vector<unsigned int>& meshIndices, bool useTextures = true,
 	          const Texture* overrideTexture = nullptr) const;
 
+	// Igual que Draw, pero para dibujar con un shader GLSL (el programa ya debe estar activo).
+	// Envía los VBOs como atributos de vértice: 0 = posición, 1 = normal, 2 = UV.
+	// locHasTexture es la posición del uniform bool que indica si la submalla tiene textura.
+	void DrawShader(const std::vector<unsigned int>& meshIndices, bool useTextures,
+	                const Texture* overrideTexture, GLint locHasTexture) const;
+
 	// Matriz que centra el modelo completo y lo escala a tamaño unitario
 	glm::mat4 GetNormalizeMatrix() const;
 
@@ -104,6 +118,28 @@ public:
 	unsigned int GetMeshVertices(unsigned int i) const { return i < meshes.size() ? meshes[i].num_vertex : 0; }
 	unsigned int GetMeshTriangles(unsigned int i) const { return i < meshes.size() ? meshes[i].num_index / 3 : 0; }
 	unsigned int GetMeshMaterial(unsigned int i) const { return i < meshes.size() ? meshes[i].materialIndex : 0; }
+
+	// AABB local que envuelve las submallas indicadas (las de un nodo).
+	// Devuelve false si ninguna de ellas tiene vértices.
+	bool GetLocalAABB(const std::vector<unsigned int>& meshIndices, glm::vec3& outMin, glm::vec3& outMax) const;
+
+	// Lanza un rayo (en el espacio local del nodo) contra los triángulos de las submallas
+	// indicadas. Devuelve true si choca y en tHit la distancia paramétrica (origen + t * dir)
+	// del impacto más cercano.
+	bool RaycastLocal(const std::vector<unsigned int>& meshIndices, const glm::vec3& origin,
+	                  const glm::vec3& dir, float& tHit) const;
+
+	// --- Normales ---
+	bool MeshHasNormals(unsigned int i) const { return i < meshes.size() && meshes[i].normal != nullptr; }
+	bool MeshNormalsFromFile(unsigned int i) const { return i < meshes.size() && meshes[i].normalsFromFile; }
+
+	// Genera los segmentos (pares de puntos en coordenadas de MUNDO) para visualizar las normales
+	// de las submallas indicadas. 'world' es la matriz mundo del nodo y 'length' la longitud de
+	// cada segmento en unidades de mundo.
+	//  vertexLines : una línea por vértice, en la dirección de su normal importada
+	//  faceLines   : una línea por triángulo, desde su centro, en la dirección de la normal de la cara
+	void BuildNormalLines(const std::vector<unsigned int>& meshIndices, const glm::mat4& world, float length,
+	                      std::vector<glm::vec3>* vertexLines, std::vector<glm::vec3>* faceLines) const;
 
 private:
 	void LoadMaterials(const aiScene* scene, const std::string& modelPath);

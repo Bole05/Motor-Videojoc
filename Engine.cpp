@@ -108,6 +108,13 @@ void Engine::ProcessInput() {
                 if (event.button.button == SDL_BUTTON_RIGHT || event.button.button == SDL_BUTTON_MIDDLE) {
                     renderer.SetMouseDragging(true);
                 }
+                else if (event.button.button == SDL_BUTTON_LEFT) {
+                    // Clic izquierdo en la vista 3D = seleccionar la pieza del modelo bajo el ratón
+                    // (con Alt se selecciona el modelo entero)
+                    const bool wholeModel = (SDL_GetModState() & SDL_KMOD_ALT) != 0;
+                    renderer.PickAt(event.button.x, event.button.y,
+                                    (float)window.GetWidth(), (float)window.GetHeight(), wholeModel);
+                }
             }
         }
         else if (event.type == SDL_EVENT_MOUSE_BUTTON_UP) {

@@ -25,6 +25,8 @@ add_executable(Motor
     Renderer.cpp
     Geometria.h
     Geometria.cpp
+    Shader.h
+    Shader.cpp
     ModelObject.h
     Log.h
     Log.cpp
@@ -39,4 +41,4 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     ${CMAKE_CURRENT_SOURCE_DIR}/assets
     $<TARGET_FILE_DIR:Motor>/assets
-)
+)

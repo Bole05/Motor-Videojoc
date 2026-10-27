@@ -1,6 +1,7 @@
 #include "Geometria.h"
 #include "Log.h"
 #include <cfloat>
+#include <cmath>
 #include <cstring>
 #include <algorithm>
 #include <filesystem>
@@ -213,13 +214,33 @@ bool Geometria::Load(const std::string& file_path) {
 	// salga limpia (Baker_house, Chimney... en vez de nodos $AssimpFbx$)
 	aiPropertyStore* props = aiCreatePropertyStore();
 	aiSetImportPropertyInteger(props, AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, 0);
-	const aiScene* scene = aiImportFileExWithProperties(file_path.c_str(),
-		aiProcessPreset_TargetRealtime_MaxQuality, nullptr, props);
+	// Se importa SIN generar normales, para poder saber cuáles vienen en el fichero.
+	const unsigned int importFlags = aiProcessPreset_TargetRealtime_MaxQuality &
+		~(aiProcess_GenSmoothNormals | aiProcess_GenNormals);
+	const aiScene* scene = aiImportFileExWithProperties(file_path.c_str(), importFlags, nullptr, props);
 	aiReleasePropertyStore(props);
 	if (!scene || !scene->HasMeshes()) {
 		LOG("Error loading scene %s: %s", file_path.c_str(), aiGetErrorString());
 		return false;
 	}
+
+	// Normales: anotar qué mallas las traen en el fichero y, si a alguna le faltan,
+	// pedir a Assimp que las calcule (normales suaves). Las que ya tienen no se tocan.
+	std::vector<bool> normalsInFile(scene->mNumMeshes, false);
+	unsigned int meshesWithoutNormals = 0;
+	for (unsigned int m = 0; m < scene->mNumMeshes; ++m) {
+		normalsInFile[m] = scene->mMeshes[m] && scene->mMeshes[m]->HasNormals();
+		if (!normalsInFile[m]) ++meshesWithoutNormals;
+	}
+	if (meshesWithoutNormals > 0) {
+		LOG("%u submallas sin normales en el fichero: se generan normales suaves.", meshesWithoutNormals);
+		scene = aiApplyPostProcessing(scene, aiProcess_GenSmoothNormals);
+		if (!scene) {
+			LOG("Error al generar normales para %s", file_path.c_str());
+			return false;
+		}
+	}
+	unsigned int importedNormals = 0, generatedNormals = 0;
 
 	filePath = file_path;
 	glm::vec3 minV(FLT_MAX);
@@ -245,6 +266,15 @@ bool Geometria::Load(const std::string& file_path) {
 		mesh.vertex = new float[mesh.num_vertex * 3];
 		memcpy(mesh.vertex, ai_mesh->mVertices, sizeof(float) * mesh.num_vertex * 3);
 
+		// AABB local de la submalla (para el modo debug)
+		mesh.aabbMin = glm::vec3(FLT_MAX);
+		mesh.aabbMax = glm::vec3(-FLT_MAX);
+		for (unsigned int v = 0; v < mesh.num_vertex; ++v) {
+			const glm::vec3 p(mesh.vertex[v * 3 + 0], mesh.vertex[v * 3 + 1], mesh.vertex[v * 3 + 2]);
+			mesh.aabbMin = glm::min(mesh.aabbMin, p);
+			mesh.aabbMax = glm::max(mesh.aabbMax, p);
+		}
+
 		// Subir vértices a GPU
 		glGenBuffers(1, &mesh.id_vertex);
 		glBindBuffer(GL_ARRAY_BUFFER, mesh.id_vertex);
@@ -252,6 +282,8 @@ bool Geometria::Load(const std::string& file_path) {
 
 		// Normales
 		if (ai_mesh->HasNormals()) {
+			mesh.normalsFromFile = normalsInFile[m];
+			if (mesh.normalsFromFile) ++importedNormals; else ++generatedNormals;
 			mesh.normal = new float[mesh.num_vertex * 3];
 			memcpy(mesh.normal, ai_mesh->mNormals, sizeof(float) * mesh.num_vertex * 3);
 			glGenBuffers(1, &mesh.id_normal);
@@ -316,6 +348,7 @@ bool Geometria::Load(const std::string& file_path) {
 		LOG("Modelo cargado: %s (%zu submallas, %u vertices, %u triangulos, UVs: %s)",
 			file_path.c_str(), meshes.size(), totalVertices, totalTriangles, hasUVs ? "si" : "no");
 		LOG("AABB center=(%.2f, %.2f, %.2f) radius=%.2f", meshCenter.x, meshCenter.y, meshCenter.z, meshRadius);
+		LOG("Normales: %u submallas importadas del fichero, %u generadas", importedNormals, generatedNormals);
 		LOG("Jerarquia: nodo raiz '%s' con %zu hijos", rootNode.name.c_str(), rootNode.children.size());
 	}
 
@@ -362,6 +395,97 @@ bool Geometria::HasAnyTexture() const {
 		if (m.texture && m.texture->IsLoaded()) return true;
 	}
 	return false;
+}
+
+bool Geometria::GetLocalAABB(const std::vector<unsigned int>& meshIndices, glm::vec3& outMin, glm::vec3& outMax) const {
+	bool any = false;
+	outMin = glm::vec3(FLT_MAX);
+	outMax = glm::vec3(-FLT_MAX);
+	for (unsigned int idx : meshIndices) {
+		if (idx >= meshes.size() || meshes[idx].num_vertex == 0) continue;
+		outMin = glm::min(outMin, meshes[idx].aabbMin);
+		outMax = glm::max(outMax, meshes[idx].aabbMax);
+		any = true;
+	}
+	return any;
+}
+
+bool Geometria::RaycastLocal(const std::vector<unsigned int>& meshIndices, const glm::vec3& origin,
+                             const glm::vec3& dir, float& tHit) const {
+	bool hit = false;
+	float best = FLT_MAX;
+	for (unsigned int idx : meshIndices) {
+		if (idx >= meshes.size()) continue;
+		const Mesh& m = meshes[idx];
+		if (!m.vertex || !m.index) continue;
+
+		for (unsigned int i = 0; i + 2 < m.num_index; i += 3) {
+			const unsigned int i0 = m.index[i], i1 = m.index[i + 1], i2 = m.index[i + 2];
+			if (i0 >= m.num_vertex || i1 >= m.num_vertex || i2 >= m.num_vertex) continue;
+			const glm::vec3 v0(m.vertex[i0 * 3], m.vertex[i0 * 3 + 1], m.vertex[i0 * 3 + 2]);
+			const glm::vec3 v1(m.vertex[i1 * 3], m.vertex[i1 * 3 + 1], m.vertex[i1 * 3 + 2]);
+			const glm::vec3 v2(m.vertex[i2 * 3], m.vertex[i2 * 3 + 1], m.vertex[i2 * 3 + 2]);
+
+			// Möller–Trumbore (sin descartar caras traseras)
+			const glm::vec3 e1 = v1 - v0, e2 = v2 - v0;
+			const glm::vec3 p = glm::cross(dir, e2);
+			const float det = glm::dot(e1, p);
+			if (std::fabs(det) < 1e-12f) continue;
+			const float invDet = 1.0f / det;
+			const glm::vec3 s = origin - v0;
+			const float u = glm::dot(s, p) * invDet;
+			if (u < 0.0f || u > 1.0f) continue;
+			const glm::vec3 q = glm::cross(s, e1);
+			const float v = glm::dot(dir, q) * invDet;
+			if (v < 0.0f || u + v > 1.0f) continue;
+			const float t = glm::dot(e2, q) * invDet;
+			if (t > 0.0f && t < best) { best = t; hit = true; }
+		}
+	}
+	if (hit) tHit = best;
+	return hit;
+}
+
+void Geometria::BuildNormalLines(const std::vector<unsigned int>& meshIndices, const glm::mat4& world, float length,
+                                 std::vector<glm::vec3>* vertexLines, std::vector<glm::vec3>* faceLines) const {
+	// Las normales no se transforman con la matriz mundo, sino con su inversa traspuesta
+	// (si no, se deformarían con escalas no uniformes)
+	const glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(world)));
+
+	for (unsigned int idx : meshIndices) {
+		if (idx >= meshes.size()) continue;
+		const Mesh& m = meshes[idx];
+		if (!m.vertex) continue;
+
+		// Normales de vértice (las importadas / generadas)
+		if (vertexLines && m.normal) {
+			for (unsigned int v = 0; v < m.num_vertex; ++v) {
+				const glm::vec3 p(world * glm::vec4(m.vertex[v * 3], m.vertex[v * 3 + 1], m.vertex[v * 3 + 2], 1.0f));
+				glm::vec3 n = normalMatrix * glm::vec3(m.normal[v * 3], m.normal[v * 3 + 1], m.normal[v * 3 + 2]);
+				const float len = glm::length(n);
+				if (len < 1e-8f) continue;
+				vertexLines->push_back(p);
+				vertexLines->push_back(p + n / len * length);
+			}
+		}
+
+		// Normales de cara: se calculan con el producto vectorial de dos aristas del triángulo
+		if (faceLines && m.index) {
+			for (unsigned int i = 0; i + 2 < m.num_index; i += 3) {
+				const unsigned int i0 = m.index[i], i1 = m.index[i + 1], i2 = m.index[i + 2];
+				if (i0 >= m.num_vertex || i1 >= m.num_vertex || i2 >= m.num_vertex) continue;
+				const glm::vec3 a(world * glm::vec4(m.vertex[i0 * 3], m.vertex[i0 * 3 + 1], m.vertex[i0 * 3 + 2], 1.0f));
+				const glm::vec3 b(world * glm::vec4(m.vertex[i1 * 3], m.vertex[i1 * 3 + 1], m.vertex[i1 * 3 + 2], 1.0f));
+				const glm::vec3 c(world * glm::vec4(m.vertex[i2 * 3], m.vertex[i2 * 3 + 1], m.vertex[i2 * 3 + 2], 1.0f));
+				glm::vec3 n = glm::cross(b - a, c - a);
+				const float len = glm::length(n);
+				if (len < 1e-12f) continue;   // triángulo degenerado
+				const glm::vec3 center = (a + b + c) / 3.0f;
+				faceLines->push_back(center);
+				faceLines->push_back(center + n / len * length);
+			}
+		}
+	}
 }
 
 glm::mat4 Geometria::GetNormalizeMatrix() const {
@@ -428,6 +552,67 @@ void Geometria::Draw(const std::vector<unsigned int>& meshIndices, bool useTextu
 	glBindTexture(GL_TEXTURE_2D, 0);
 	glDisable(GL_TEXTURE_2D);
 
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+}
+
+void Geometria::DrawShader(const std::vector<unsigned int>& meshIndices, bool useTextures,
+                           const Texture* overrideTexture, GLint locHasTexture) const {
+	if (!hasLoaded || meshes.empty() || meshIndices.empty()) return;
+
+	glActiveTexture(GL_TEXTURE0);
+
+	for (unsigned int idx : meshIndices) {
+		if (idx >= meshes.size()) continue;
+		const Mesh& mesh = meshes[idx];
+		if (mesh.id_vertex == 0 || mesh.id_index == 0) continue;
+
+		// Atributo 0: posición
+		glBindBuffer(GL_ARRAY_BUFFER, mesh.id_vertex);
+		glEnableVertexAttribArray(0);
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+
+		// Atributo 1: normal (si la malla no tiene, se envía (0,0,0) y el shader calcula una plana)
+		if (mesh.id_normal != 0) {
+			glBindBuffer(GL_ARRAY_BUFFER, mesh.id_normal);
+			glEnableVertexAttribArray(1);
+			glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+		} else {
+			glDisableVertexAttribArray(1);
+			glVertexAttrib3f(1, 0.0f, 0.0f, 0.0f);
+		}
+
+		// Atributo 2: coordenadas UV
+		if (mesh.id_texcoord != 0) {
+			glBindBuffer(GL_ARRAY_BUFFER, mesh.id_texcoord);
+			glEnableVertexAttribArray(2);
+			glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
+		} else {
+			glDisableVertexAttribArray(2);
+			glVertexAttrib2f(2, 0.0f, 0.0f);
+		}
+
+		// Textura de esta submalla (misma lógica que Draw)
+		const Texture* tex = nullptr;
+		if (useTextures && mesh.id_texcoord != 0) {
+			if (overrideTexture && overrideTexture->IsLoaded()) {
+				tex = overrideTexture;
+			} else if (mesh.materialIndex < materials.size()) {
+				const auto& mt = materials[mesh.materialIndex].texture;
+				if (mt && mt->IsLoaded()) tex = mt.get();
+			}
+		}
+		glBindTexture(GL_TEXTURE_2D, tex ? tex->GetID() : 0);
+		if (locHasTexture >= 0) glUniform1i(locHasTexture, tex ? 1 : 0);
+
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.id_index);
+		glDrawElements(GL_TRIANGLES, mesh.num_index, GL_UNSIGNED_INT, nullptr);
+	}
+
+	glDisableVertexAttribArray(0);
+	glDisableVertexAttribArray(1);
+	glDisableVertexAttribArray(2);
+	glBindTexture(GL_TEXTURE_2D, 0);
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 }
