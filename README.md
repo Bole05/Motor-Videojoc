@@ -29,8 +29,6 @@ Descargar el zip, Extraer el fichero, Ejecutar la aplicación
 * **SHIFT (Mantener):** Duplica la velocidad de movimiento de la cámara mientras se combina con los controles de desplazamiento.
 * **Clic Central (Mantener) + Arrastrar:** Desplaza la cámara lateralmente (*pan*).
 
-La velocidad y la sensibilidad de la cámara se pueden ajustar en el panel **Configuración → Input**.
-
 ### Selección y edición
 * **Clic Izquierdo** sobre un modelo en la escena: selecciona la pieza que hay bajo el ratón (por ejemplo, la chimenea de la casa). La pieza seleccionada se resalta en naranja y su nombre aparece en la parte superior de la pantalla.
 * **CTRL + Clic Izquierdo:** selecciona el modelo entero.
