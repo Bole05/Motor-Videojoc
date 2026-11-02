@@ -62,4 +62,4 @@ El editor está compuesto por diferentes paneles interactivos que se pueden most
 * **Help:** Enlaces directos a la documentación (repositorio de GitHub), reporte de bugs (`/issues`), descargas (`/releases`) y la ventana **About** con los créditos del equipo, librerías y licencia MIT.
 
 ## c. Extras
-* **Shader Editor** 
+* **Shader Editor: ** Giro automático de los objetos, Shaders GLSL con modos UV's, normales, etc.
