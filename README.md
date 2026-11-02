@@ -17,17 +17,8 @@ SDL3 (ventana e input), OpenGL 4.6 + glad (render), Dear ImGui (interfaz), Assim
 
 ## b. Cómo Usar el Motor y Controles
 
-### Requisitos previos
-* Compilador compatible con C++17 o superior.
-* CMake (versión 3.15 o superior).
-* Gestor de paquetes `vcpkg` (utilizado para la gestión de dependencias configurado en el proyecto).
-
 ### Compilar
-```
-cmake -S . -B build
-cmake --build build
-```
-El código fuente está en la carpeta `src/` y los recursos (modelos, texturas y shaders) en `assets/`.
+Descargar el zip, Extraer el fichero, Ejecutar la aplicación
 
 ### Controles de cámara
 * **Clic Derecho (Mantener) + WASD:** Movimiento tipo FPS (First Person Shooter) libre por el espacio tridimensional.
