@@ -1921,10 +1921,9 @@ void Renderer::DrawMainMenuBar(Window& window) {
     // Help: documentación, bugs, descargas y About
     if (ImGui::BeginMenu("Help")) {
         const std::string repo = "https://github.com/Bole05/Motor-Videojoc";
-        if (ImGui::MenuItem("Documentacion (GitHub /docs)"))  SDL_OpenURL((repo + "/tree/main/docs").c_str());
+        if (ImGui::MenuItem("Documentacion (GitHub)"))        SDL_OpenURL(repo.c_str());
         if (ImGui::MenuItem("Reportar un bug (/issues)"))     SDL_OpenURL((repo + "/issues").c_str());
         if (ImGui::MenuItem("Descargar ultima version (/releases)")) SDL_OpenURL((repo + "/releases").c_str());
-        if (ImGui::MenuItem("Repositorio en GitHub"))          SDL_OpenURL(repo.c_str());
         ImGui::Separator();
         ImGui::MenuItem("About...", nullptr, &showAbout);
         ImGui::EndMenu();

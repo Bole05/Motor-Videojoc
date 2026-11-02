@@ -68,4 +68,4 @@ El editor está compuesto por diferentes paneles interactivos que se pueden most
 * **Menú de Geometrías Básicas:** Permite instanciar rápidamente figuras geométricas primitivas predefinidas en la escena (cubo, esfera, cilindro, cono, pirámide y plano).
 * **View:** Permite alternar la visibilidad de las diferentes ventanas del editor, además de opciones de render (rejilla, wireframe, texturas, shaders).
 * **Debug:** Modo Debug con las cajas envolventes (AABB, OBB y caja de grupo) y la visualización de normales de vértice y de cara.
-* **Help:** Enlaces directos a la documentación de GitHub (`/docs`), reporte de bugs (`/issues`), descargas (`/releases`) y la ventana **About** con los créditos del equipo, librerías y licencia MIT.
+* **Help:** Enlaces directos a la documentación (repositorio de GitHub), reporte de bugs (`/issues`), descargas (`/releases`) y la ventana **About** con los créditos del equipo, librerías y licencia MIT.
