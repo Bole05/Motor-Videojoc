@@ -8,38 +8,33 @@
 #include "Window.h"
 #include "Texture.h"
 #include "Geometria.h"
-#include "ModelObject.h"
+#include "GameObject.h"
 #include "Shader.h"
 
-// Renderer: gestiona el renderizado 3D con OpenGL y la interfaz de usuario con ImGui.
+// Renderer (parte del MOTOR): escena de GameObjects, cámara, selección y render 3D con OpenGL.
+// No sabe nada de ImGui: toda la interfaz (paneles, menús, inspector...) vive en la clase Editor,
+// que lee y cambia las opciones del Renderer (por eso Editor es friend).
 class Renderer {
+    friend class Editor;
 public:
     Renderer();
     ~Renderer();
 
-    // Inicializa OpenGL, luces, ImGui y carga el modelo inicial (BakerHouse)
-    bool Init(Window& window);
+    // Inicializa OpenGL, luces, shaders y carga el modelo inicial (BakerHouse)
+    bool Init();
 
-    // Actualiza animaciones (giro continuo de modelos, etc.)
-    void Update(float deltaTime = 0.016f);
+    // Mueve la cámara (WASD) y actualiza los GameObjects.
+    // keyboardFree = false si el usuario está escribiendo en un campo de texto del editor.
+    void Update(float deltaTime, bool keyboardFree);
 
-    // Dibuja la escena completa (OpenGL + paneles ImGui) e intercambia buffers
-    void Render(Window& window);
+    // Dibuja la escena 3D (la interfaz del editor se dibuja después, encima)
+    void Render(const Window& window);
 
-    // Libera recursos de GPU e ImGui
+    // Libera los recursos de GPU
     void CleanUp();
 
     // --- Gestión de Escena (Modelos FBX / OBJ) ---
     bool AddModel(const std::string& path);
-    // Decide qué hacer con un fichero arrastrado: modelo (fbx/obj...) o imagen (png/dds/jpg...).
-    // (x, y) es el punto de la ventana donde se ha soltado: si cae encima de la miniatura
-    // de una textura en el Inspector, esa textura se sustituye por la nueva imagen.
-    void HandleDroppedFile(const std::string& path, float x = -1.0f, float y = -1.0f);
-
-    // Seguimiento del arrastre de ficheros (para resaltar la zona donde se va a soltar)
-    void OnFileDragBegin() { isDraggingFile = true; }
-    void OnFileDragMove(float x, float y) { isDraggingFile = true; dragPos = glm::vec2(x, y); }
-    void OnFileDragEnd() { isDraggingFile = false; }
     // Carga una imagen y la asigna como textura al objeto seleccionado
     bool ApplyTextureToSelected(const std::string& path);
     void DuplicateSelected();
@@ -48,12 +43,12 @@ public:
 
     // Crea un GameObject vacío (sin malla), como "Create Empty" de Unity.
     // Si parent es nullptr se crea en la raíz de la escena.
-    std::shared_ptr<ModelObject> CreateEmptyObject(ModelObject* parent = nullptr);
+    std::shared_ptr<GameObject> CreateEmptyObject(GameObject* parent = nullptr);
 
     // Mueve un objeto a otro padre (nullptr = raíz) en la posición 'index' entre sus
     // hermanos (-1 = al final). Conserva su posición en el mundo, como en Unity.
     // Devuelve false si el movimiento no es válido (p.ej. meterlo dentro de su propio hijo).
-    bool ReparentObject(ModelObject* obj, ModelObject* newParent, int index = -1);
+    bool ReparentObject(GameObject* obj, GameObject* newParent, int index = -1);
 
     // Crea una geometría básica (cubo, esfera...) delante de la cámara
     void AddPrimitive(PrimitiveType type);
@@ -95,8 +90,8 @@ public:
 
     // --- Getters / Setters ---
     // El objeto seleccionado puede ser un modelo entero o un nodo hijo (p.ej. la chimenea)
-    std::shared_ptr<ModelObject> GetSelectedObject() { return selectedObject; }
-    void SetSelectedObject(const std::shared_ptr<ModelObject>& obj) { selectedObject = obj; }
+    std::shared_ptr<GameObject> GetSelectedObject() { return selectedObject; }
+    void SetSelectedObject(const std::shared_ptr<GameObject>& obj) { selectedObject = obj; }
     size_t GetObjectCount() const { return objects.size(); }
 
 
@@ -107,68 +102,37 @@ private:
     // --- Modo Debug: cajas envolventes (AABB / OBB) ---
     // Dibuja las cajas de 'obj' y sus hijos. Devuelve en outMin/outMax el AABB mundo
     // que envuelve al nodo y a todos sus descendientes (false si no hay geometría).
-    bool RenderDebugNode(const std::shared_ptr<ModelObject>& obj, const glm::mat4& parentWorld,
+    bool RenderDebugNode(const std::shared_ptr<GameObject>& obj, const glm::mat4& parentWorld,
                          bool inheritedSelected, glm::vec3& outMin, glm::vec3& outMax);
     void RenderDebug(const glm::mat4& view);
 
     // Resaltado de la selección: vuelve a dibujar la pieza seleccionada (y sus hijos)
     // con un relleno de color semitransparente y su malla en alambre por encima
     void RenderSelectionHighlight(const glm::mat4& view);
-    void RenderHighlightNode(const ModelObject* obj, const glm::mat4& world, const glm::mat4& view, int pass);
+    void RenderHighlightNode(const GameObject* obj, const glm::mat4& world, const glm::mat4& view, int pass);
     // AABB en el mundo de un nodo (sólo su malla, o incluyendo hijos)
-    bool ComputeWorldAABB(const ModelObject* obj, bool includeChildren, glm::vec3& outMin, glm::vec3& outMax) const;
+    bool ComputeWorldAABB(const GameObject* obj, bool includeChildren, glm::vec3& outMin, glm::vec3& outMax) const;
     // Dibuja un nodo y, recursivamente, todos sus hijos
-    void RenderNode(const std::shared_ptr<ModelObject>& obj, const glm::mat4& parentWorld, const glm::mat4& view,
+    void RenderNode(const std::shared_ptr<GameObject>& obj, const glm::mat4& parentWorld, const glm::mat4& view,
                     const Texture* inheritedTexture, bool inheritedShowTexture, bool inheritedWireframe,
                     bool inheritedSelected);
-    // Pinta un nodo en el panel de jerarquía (TreeNode de ImGui) y sus hijos
-    void DrawHierarchyNode(const std::shared_ptr<ModelObject>& obj);
-    void DrawUI(Window& window);
-
-    // --- Paneles del editor (menú View) ---
-    void DrawConsolePanel();
-    void DrawConfigPanel(Window& window);
-    void DrawAboutWindow();
-    void DrawMainMenuBar(Window& window);
     void CreateCheckerTexture();
 
     // --- Shaders (GLSL) ---
     // Carga assets/shaders/default.vert/.frag (o el código por defecto si no se encuentran)
     void InitShaders();
-    // Panel "Editor de Shaders": editar el código GLSL y recompilar en directo
-    void DrawShaderEditor();
-    void CompileShaderFromEditor();
-    void CopyShaderSourcesToEditor();
-
-    // Acciones pedidas desde el menú contextual de la jerarquía.
-    // Se ejecutan al terminar de dibujar el árbol para no modificarlo mientras se recorre.
-    enum class PendingAction { NONE, DUPLICATE, DELETE_OBJ, CREATE_EMPTY, CREATE_EMPTY_CHILD };
-    PendingAction pendingAction = PendingAction::NONE;
-
-    // Arrastrar y soltar dentro de la jerarquía: se guarda lo que se ha soltado y se
-    // aplica al terminar de dibujar el árbol (igual que las acciones del menú contextual)
-    struct PendingReparent {
-        ModelObject* obj = nullptr;
-        ModelObject* newParent = nullptr;
-        int index = -1;
-        bool active = false;
-    };
-    PendingReparent pendingReparent;
-
     // Utilidades de la jerarquía
-    std::shared_ptr<ModelObject> FindShared(const ModelObject* raw) const;
-    std::vector<std::shared_ptr<ModelObject>>& SiblingList(ModelObject* parent) { return parent ? parent->children : objects; }
+    std::shared_ptr<GameObject> FindShared(const GameObject* raw) const;
+    std::vector<std::shared_ptr<GameObject>>& SiblingList(GameObject* parent) { return parent ? parent->children : objects; }
     std::string MakeUniqueName(const std::string& base) const;
 
     // Escena: lista de objetos raíz (cada uno puede tener hijos) y selección
-    std::vector<std::shared_ptr<ModelObject>> objects;
-    std::shared_ptr<ModelObject> selectedObject;
+    std::vector<std::shared_ptr<GameObject>> objects;
+    std::shared_ptr<GameObject> selectedObject;
 
     // Matrices del último frame (para convertir el clic del ratón en un rayo 3D)
     glm::mat4 lastView = glm::mat4(1.0f);
     glm::mat4 lastProjection = glm::mat4(1.0f);
-    // Al seleccionar desde la vista 3D, la jerarquía abre los padres y se desplaza hasta el objeto
-    bool revealSelectionInHierarchy = false;
 
     // Cámara libre: posición + orientación (yaw / pitch en grados).
     // La cámara mira en la dirección GetCameraForward(). cameraFocusDistance es la distancia
@@ -216,37 +180,17 @@ private:
     glm::vec3 lightDirection = glm::vec3(5.0f, 10.0f, 8.0f);   // hacia la luz (luz direccional)
     glm::vec3 lightColor = glm::vec3(1.0f);
     glm::vec3 lastCameraPos = glm::vec3(0.0f);
-    bool showShaderEditor = false;
     std::string vertexShaderPath, fragmentShaderPath;   // ficheros cargados (vacío = código por defecto)
-    std::vector<char> vertexEditBuf, fragmentEditBuf;   // texto del editor
-    std::string shaderStatus;
-    bool shaderStatusOk = true;
 
-    // Ventanas del editor (se muestran / ocultan desde el menú View)
+    // Escena 3D visible (menú View > Escena)
     bool showScene = true;
-    bool showHierarchy = true;
-    bool showInspector = true;
-    bool showConsole = true;
-    bool showConfig = false;
-    bool showAbout = false;
 
-    // Consola
-    bool consoleShowInfo = true, consoleShowWarnings = true, consoleShowErrors = true;
-    bool consoleAutoScroll = true;
-    char consoleFilter[128] = "";
-    size_t consoleLastCount = 0;
-
-    // Configuración: historial de FPS y opciones de los módulos
-    static const int FPS_HISTORY = 100;
-    float fpsHistory[FPS_HISTORY] = {};
-    float msHistory[FPS_HISTORY] = {};
-    int fpsHistoryIndex = 0;
+    // Opciones del render (panel Configuración)
     int fpsLimit = 0;                 // 0 = sin límite
     bool vsync = true;
     bool depthTest = true;
     bool cullFace = false;
     bool fixedLighting = true;        // iluminación del pipeline fijo (cuando no se usan shaders)
-    char windowTitle[128] = "Motor 3D - Model Viewer & Editor";
 
     // Textura de comprobación (checker) compartida por todos los objetos que la usan
     std::shared_ptr<Texture> checkerTexture;
@@ -256,20 +200,4 @@ private:
     bool globalWireframe = false;
     bool globalShowTextures = true;   // Interruptor global de texturas
     glm::vec3 clearColor = glm::vec3(0.12f, 0.12f, 0.16f);
-
-    // Zonas del Inspector donde se puede soltar una imagen para sustituir la textura
-    // de un material (se rellenan cada frame al dibujar el Inspector)
-    struct TextureDropZone {
-        glm::vec2 min, max;
-        std::shared_ptr<Geometria> geom;
-        unsigned int material = 0;
-    };
-    std::vector<TextureDropZone> textureDropZones;
-    const TextureDropZone* FindDropZone(const glm::vec2& p) const;
-    bool isDraggingFile = false;
-    glm::vec2 dragPos = glm::vec2(-1.0f);
-
-    // Buffer para diálogo de carga manual
-    char loadPathBuffer[512] = "";
-    bool showLoadModal = false;
 };

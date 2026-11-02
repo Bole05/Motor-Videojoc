@@ -1,4 +1,4 @@
 build/
 vcpkg_installed/
-build/
-vcpkg_installed/
+Motor-Videojoc_v*/
+Motor-Videojoc_v*.zip

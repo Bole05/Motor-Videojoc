@@ -2,8 +2,6 @@
 #include <glad/glad.h>
 #include <fmt/core.h>
 #include "Log.h"
-#include <imgui.h>
-#include <imgui_impl_sdl3.h>
 
 // ─────────────────────────────────────────────
 //  Constructor / Destructor
@@ -44,8 +42,13 @@ bool Engine::Init() {
     glViewport(0, 0, window.GetWidth(), window.GetHeight());
     glEnable(GL_DEPTH_TEST);
 
-    // 4. Inicializar el Renderer e ImGui (necesita contexto OpenGL y Window)
-    if (!renderer.Init(window)) {
+    // 4. Inicializar el motor (Renderer: shaders, cámara, modelo inicial)
+    if (!renderer.Init()) {
+        return false;
+    }
+
+    // 5. Inicializar el editor (Dear ImGui)
+    if (!editor.Init(window)) {
         return false;
     }
 
@@ -83,10 +86,8 @@ void Engine::Run() {
 void Engine::ProcessInput() {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
-        // Enviar eventos a Dear ImGui
-        ImGui_ImplSDL3_ProcessEvent(&event);
-
-        ImGuiIO& io = ImGui::GetIO();
+        // Enviar eventos al editor (Dear ImGui)
+        editor.ProcessEvent(event);
 
         if (event.type == SDL_EVENT_QUIT) {
             isRunning = false;
@@ -99,23 +100,23 @@ void Engine::ProcessInput() {
             glViewport(0, 0, w, h);
         }
         else if (event.type == SDL_EVENT_DROP_BEGIN) {
-            renderer.OnFileDragBegin();
+            editor.OnFileDragBegin();
         }
         else if (event.type == SDL_EVENT_DROP_POSITION) {
             // Posición del ratón mientras se arrastra un fichero sobre la ventana
-            renderer.OnFileDragMove(event.drop.x, event.drop.y);
+            editor.OnFileDragMove(event.drop.x, event.drop.y);
         }
         else if (event.type == SDL_EVENT_DROP_COMPLETE) {
-            renderer.OnFileDragEnd();
+            editor.OnFileDragEnd();
         }
         else if (event.type == SDL_EVENT_DROP_FILE) {
             std::string path = event.drop.data;
             LOG("Fichero arrastrado: %s (en %.0f, %.0f)", path.c_str(), event.drop.x, event.drop.y);
             // Se pasa también el punto donde se ha soltado (para sustituir texturas del Inspector)
-            renderer.HandleDroppedFile(path, event.drop.x, event.drop.y);
+            editor.HandleDroppedFile(path, event.drop.x, event.drop.y);
         }
         else if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
-            if (!io.WantCaptureMouse) {
+            if (!editor.WantCaptureMouse()) {
                 const SDL_Keymod mod = SDL_GetModState();
                 if (event.button.button == SDL_BUTTON_RIGHT) {
                     // Clic derecho (mantener): mirar alrededor + moverse con WASD
@@ -162,12 +163,12 @@ void Engine::ProcessInput() {
             }
         }
         else if (event.type == SDL_EVENT_MOUSE_WHEEL) {
-            if (!io.WantCaptureMouse) {
+            if (!editor.WantCaptureMouse()) {
                 renderer.OnMouseWheel(event.wheel.y);
             }
         }
         else if (event.type == SDL_EVENT_KEY_DOWN) {
-            if (!io.WantTextInput) {
+            if (!editor.WantTextInput()) {
                 // Atajos de modelado tipo Blender / Unity
                 if (event.key.key == SDLK_DELETE) {
                     renderer.DeleteSelected();
@@ -193,11 +194,16 @@ void Engine::Update() {
     float deltaTime = (lastTime > 0) ? static_cast<float>(now - lastTime) / 1000.0f : 0.016f;
     lastTime = now;
 
-    renderer.Update(deltaTime);
+    editor.RecordFrameTime(deltaTime);
+    renderer.Update(deltaTime, !editor.WantTextInput());
 }
 
 void Engine::Render() {
-    renderer.Render(window);
+    editor.BeginFrame();
+    editor.Draw(window);       // paneles de la interfaz
+    renderer.Render(window);   // escena 3D
+    editor.EndFrame();         // la interfaz se dibuja encima de la escena
+    window.SwapBuffers();
 }
 
 // ─────────────────────────────────────────────
@@ -205,6 +211,7 @@ void Engine::Render() {
 // ─────────────────────────────────────────────
 
 void Engine::CleanUp() {
+    editor.CleanUp();
     renderer.CleanUp();
     window.CleanUp();
     LOG("Motor apagado correctamente.");

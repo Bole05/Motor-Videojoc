@@ -7,8 +7,8 @@ Este proyecto consiste en un **motor de videojuegos minimalista en C++** diseña
 * **Enlace al repositorio de GitHub:** [github.com/Bole05/Motor-Videojoc](https://github.com/Bole05/Motor-Videojoc)
 
 ### Integrantes del Grupo
-* **Bole Wu** - [GitHub del Integrante ](https://github.com/Bole05)
-* **Yangfeng Xu** - [GitHub del Integrante ](https://github.com/yangfeng-xu)
+* **Bole Wu** - [GitHub del Integrante ](https://github.com/)
+* **Yangfeng Xu** - [GitHub del Integrante ](https://github.com/)
 
 ### Librerías utilizadas
 SDL3 (ventana e input), OpenGL 4.6 + glad (render), Dear ImGui (interfaz), Assimp (modelos 3D), DevIL (texturas), glm (matemáticas) y fmt.
@@ -17,8 +17,17 @@ SDL3 (ventana e input), OpenGL 4.6 + glad (render), Dear ImGui (interfaz), Assim
 
 ## b. Cómo Usar el Motor y Controles
 
+### Requisitos previos
+* Compilador compatible con C++17 o superior.
+* CMake (versión 3.15 o superior).
+* Gestor de paquetes `vcpkg` (utilizado para la gestión de dependencias configurado en el proyecto).
+
 ### Compilar
-Descargar el zip, Extraer el fichero, Ejecutar la aplicación
+```
+cmake -S . -B build
+cmake --build build
+```
+El código fuente está en la carpeta `src/` y los recursos (modelos, texturas y shaders) en `assets/`.
 
 ### Controles de cámara
 * **Clic Derecho (Mantener) + WASD:** Movimiento tipo FPS (First Person Shooter) libre por el espacio tridimensional.
@@ -28,6 +37,8 @@ Descargar el zip, Extraer el fichero, Ejecutar la aplicación
 * **Tecla "F":** Realiza *focus* automático de la cámara hacia la geometría actualmente seleccionada.
 * **SHIFT (Mantener):** Duplica la velocidad de movimiento de la cámara mientras se combina con los controles de desplazamiento.
 * **Clic Central (Mantener) + Arrastrar:** Desplaza la cámara lateralmente (*pan*).
+
+La velocidad y la sensibilidad de la cámara se pueden ajustar en el panel **Configuración → Input**.
 
 ### Selección y edición
 * **Clic Izquierdo** sobre un modelo en la escena: selecciona la pieza que hay bajo el ratón (por ejemplo, la chimenea de la casa). La pieza seleccionada se resalta en naranja y su nombre aparece en la parte superior de la pantalla.
@@ -57,7 +68,4 @@ El editor está compuesto por diferentes paneles interactivos que se pueden most
 * **Menú de Geometrías Básicas:** Permite instanciar rápidamente figuras geométricas primitivas predefinidas en la escena (cubo, esfera, cilindro, cono, pirámide y plano).
 * **View:** Permite alternar la visibilidad de las diferentes ventanas del editor, además de opciones de render (rejilla, wireframe, texturas, shaders).
 * **Debug:** Modo Debug con las cajas envolventes (AABB, OBB y caja de grupo) y la visualización de normales de vértice y de cara.
-* **Help:** Enlaces directos a la documentación (repositorio de GitHub), reporte de bugs (`/issues`), descargas (`/releases`) y la ventana **About** con los créditos del equipo, librerías y licencia MIT.
-
-## c. Extras
-* **Shader Editor: ** Giro automático de los objetos, Shaders GLSL con modos UV's, normales, etc.
+* **Help:** Enlaces directos a la documentación de GitHub (`/docs`), reporte de bugs (`/issues`), descargas (`/releases`) y la ventana **About** con los créditos del equipo, librerías y licencia MIT.

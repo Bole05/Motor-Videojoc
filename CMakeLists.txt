@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.15)
 
 project(Motor)
 
@@ -16,25 +16,36 @@ find_package(glm CONFIG REQUIRED)
 # Todo el código del motor está en la carpeta src/
 set(MOTOR_SOURCES
     src/Main.cpp
-    src/Window.h
-    src/Window.cpp
-    src/Texture.h
-    src/Texture.cpp
+    # --- Motor ---
     src/Engine.h
     src/Engine.cpp
+    src/Window.h
+    src/Window.cpp
     src/Renderer.h
     src/Renderer.cpp
     src/Geometria.h
     src/Geometria.cpp
+    src/Texture.h
+    src/Texture.cpp
     src/Shader.h
     src/Shader.cpp
     src/SystemInfo.h
     src/SystemInfo.cpp
-    src/ModelObject.h
     src/Log.h
     src/Log.cpp
+    # --- GameObjects y Componentes ---
     src/GameObject.h
+    src/GameObject.cpp
     src/Component.h
+    src/ComponentTransform.h
+    src/ComponentTransform.cpp
+    src/ComponentMesh.h
+    src/ComponentMesh.cpp
+    src/ComponentTexture.h
+    src/ComponentTexture.cpp
+    # --- Editor (interfaz con ImGui) ---
+    src/Editor.h
+    src/Editor.cpp
 )
 
 add_executable(Motor ${MOTOR_SOURCES})
@@ -52,4 +63,4 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     ${CMAKE_CURRENT_SOURCE_DIR}/assets
     $<TARGET_FILE_DIR:Motor>/assets
-)
+)
