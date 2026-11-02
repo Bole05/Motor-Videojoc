@@ -7,8 +7,8 @@ Este proyecto consiste en un **motor de videojuegos minimalista en C++** diseña
 * **Enlace al repositorio de GitHub:** [github.com/Bole05/Motor-Videojoc](https://github.com/Bole05/Motor-Videojoc)
 
 ### Integrantes del Grupo
-* **Bole Wu** - [GitHub del Integrante ](https://github.com/)
-* **Yangfeng Xu** - [GitHub del Integrante ](https://github.com/)
+* **Bole Wu** - [GitHub del Integrante ](https://github.com/Bole05)
+* **Yangfeng Xu** - [GitHub del Integrante ](https://github.com/yangfeng-xu)
 
 ### Librerías utilizadas
 SDL3 (ventana e input), OpenGL 4.6 + glad (render), Dear ImGui (interfaz), Assimp (modelos 3D), DevIL (texturas), glm (matemáticas) y fmt.
