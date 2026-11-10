@@ -57,9 +57,9 @@ bool Renderer::Init() {
     //    la carpeta assets que hay junto al ejecutable.
     //    Antes de cargar se comprueba que el fichero exista, para no llenar la Consola de
     //    errores falsos (Visual Studio ejecuta desde build/, donde no hay carpeta assets).
-    std::vector<std::string> houseCandidates = { "assets/BakerHouse.fbx" };
+    std::vector<std::string> houseCandidates = { "assets/Street/Street environment.fbx" };
     if (const char* basePath = SDL_GetBasePath()) {
-        houseCandidates.push_back(std::string(basePath) + "assets/BakerHouse.fbx");
+        houseCandidates.push_back(std::string(basePath) + "assets/Street/Street environment.fbx");
     }
     bool houseLoaded = false;
     for (const auto& candidate : houseCandidates) {
@@ -70,7 +70,7 @@ bool Renderer::Init() {
         }
     }
     if (!houseLoaded) {
-        LOG("Error: no se ha podido cargar assets/BakerHouse.fbx al iniciar (no esta junto al ejecutable).");
+        LOG("Error: no se ha podido cargar assets/Street/Street environment.fbx al iniciar (no esta junto al ejecutable).");
     }
 
     return true;
