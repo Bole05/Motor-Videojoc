@@ -1,6 +1,13 @@
 #include "GameObject.h"
+#include <random>
 
-GameObject::GameObject(const std::string& name, GameObject* parent) : name(name), parent(parent) {
+uint32_t GameObject::GenerateUID() {
+    static std::mt19937 generator{ std::random_device{}() };//generador del num aleatorio y cada vez de llamarlo que la genera un num random nuevo 
+    std::uniform_int_distribution<uint32_t>dist(1u, UINT32_MAX); //num min es 1 en vez de 0, max es el limite de la variable tipo uint
+    return dist(generator); //sacar el num
+}
+
+GameObject::GameObject(const std::string& name, GameObject* parent) :uid(GenerateUID()), name(name), parent(parent) {
     transform = static_cast<ComponentTransform*>(CreateComponent(ComponentType::TRANSFORM));
     mesh      = static_cast<ComponentMesh*>(CreateComponent(ComponentType::MESH));
     texture   = static_cast<ComponentTexture*>(CreateComponent(ComponentType::TEXTURE));

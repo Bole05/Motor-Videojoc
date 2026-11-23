@@ -5,6 +5,7 @@
     "fmt",
     "glad",
     "glm",
+    "nlohmann-json",
     {
       "name": "imgui",
       "default-features": false,

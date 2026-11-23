@@ -4,6 +4,7 @@
 #include <vector>
 #include <memory>
 #include <glm/glm.hpp>
+#include <cstdint>
 #include "Component.h"
 #include "ComponentTransform.h"
 #include "ComponentMesh.h"
@@ -52,6 +53,10 @@ public:
     bool IsSelfOrDescendantOf(const GameObject* ancestor) const;
     // true si él y todos sus padres son visibles
     bool IsVisibleInHierarchy() const;
+
+    //Identificación único de cada Game Object
+    static uint32_t GenerateUID();
+    uint32_t uid = 0;
 
     // --- Datos del GameObject ---
     std::string name;

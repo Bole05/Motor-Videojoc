@@ -12,6 +12,7 @@ find_package(DevIL REQUIRED)
 find_package(assimp CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 
 # Todo el código del motor está en la carpeta src/
 set(MOTOR_SOURCES
@@ -46,6 +47,9 @@ set(MOTOR_SOURCES
     # --- Editor (interfaz con ImGui) ---
     src/Editor.h
     src/Editor.cpp
+    # ---Save system ---
+    src/SceneSerializer.h
+    src/SceneSerializer.cpp
 )
 
 add_executable(Motor ${MOTOR_SOURCES})
@@ -56,7 +60,7 @@ target_include_directories(Motor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 # En Visual Studio, mostrar los ficheros dentro de la carpeta "src"
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "src" FILES ${MOTOR_SOURCES})
 
-target_link_libraries(Motor PRIVATE fmt::fmt SDL3::SDL3 glad::glad DevIL::IL DevIL::ILU assimp::assimp imgui::imgui glm::glm)
+target_link_libraries(Motor PRIVATE fmt::fmt SDL3::SDL3 glad::glad DevIL::IL DevIL::ILU assimp::assimp imgui::imgui glm::glm nlohmann_json::nlohmann_json)
 
 add_custom_command(
     TARGET Motor POST_BUILD
