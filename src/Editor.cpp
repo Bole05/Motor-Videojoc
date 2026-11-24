@@ -6,6 +6,7 @@
 #include "Shader.h"
 #include "Log.h"
 #include "SystemInfo.h"
+#include "SceneSerializer.h"
 #include <glad/glad.h>
 #include <glm/gtc/type_ptr.hpp>
 #include <IL/il.h>
@@ -761,6 +762,19 @@ void Editor::DrawMainMenuBar(Window& window) {
         }
         if (ImGui::MenuItem("Limpiar Escena")) {
             renderer.ClearScene();
+        }
+        if (ImGui::MenuItem("Guardar Escena")) {
+            SceneSerializer::SaveToFile("assets/Scenes/Escena.scene", renderer.objects);
+        }
+        if (ImGui::MenuItem("Cargar Escena")) {
+            SceneSerializer::SceneList loaded;
+            // UID del objeto seleccionado ANTES de cargar (0 si no hay ninguno)
+            const uint32_t selUID = renderer.selectedObject ? renderer.selectedObject->uid : 0;
+            if (SceneSerializer::LoadFromFile("assets/Scenes/Escena.scene", loaded)) {
+                renderer.objects = std::move(loaded);
+                // Volver a seleccionarlo en la escena nueva (nullptr si no está)
+                renderer.selectedObject = SceneSerializer::FindByUID(renderer.objects, selUID);
+            }
         }
         ImGui::Separator();
         if (ImGui::MenuItem("Salir", "Alt+F4")) {
